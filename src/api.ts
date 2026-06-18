@@ -255,6 +255,14 @@ export async function unblockFabEdge(edgeId: string): Promise<unknown> {
   return sendJson(`/fab-edges/${edgeId}/unblock`, { method: 'POST' })
 }
 
+export async function markOhtError(ohtId: string): Promise<OhtResponse> {
+  return sendJson<OhtResponse>(`/ohts/${ohtId}/error`, { method: 'POST' })
+}
+
+export async function recoverOht(ohtId: string): Promise<OhtResponse> {
+  return sendJson<OhtResponse>(`/ohts/${ohtId}/recover`, { method: 'POST' })
+}
+
 export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void): EventSource {
   const source = new EventSource(`${API_BASE_URL}/api/monitoring/stream`)
   const eventTypes = [

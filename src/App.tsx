@@ -9,7 +9,9 @@ import {
   getOhts,
   getOperationsOverview,
   getTransferRequests,
+  markOhtError,
   openMonitoringStream,
+  recoverOht,
   startDemoMonitoring,
   stopDemoMonitoring,
   tickDemoMonitoring,
@@ -323,6 +325,47 @@ function App() {
     }
   }
 
+  async function handleToggleSelectedOhtError() {
+    if (!selectedOht) return
+    setWorkingAction(true)
+    setError(null)
+    const occurredAt = new Date().toISOString()
+    const nextError = selectedOht.status !== 'ERROR'
+    try {
+      const response = nextError
+        ? await markOhtError(selectedOht.ohtId)
+        : await recoverOht(selectedOht.ohtId)
+      setLiveOhts((current) =>
+        current.map((oht) =>
+          oht.ohtId === selectedOht.ohtId
+            ? {
+                ...oht,
+                status: response.status,
+                currentRequestId: response.currentRequestId,
+                carryingFoupId: response.carryingFoupId,
+                lastMovedAt: response.lastMovedAt,
+              }
+            : oht,
+        ),
+      )
+      setEvents((current) => [
+        createLocalEvent(nextError ? 'OHT_ERROR_OCCURRED' : 'OHT_RECOVERED', occurredAt, {
+          ohtId: selectedOht.ohtId,
+          currentNodeId: selectedOht.currentNodeId,
+          alertSeverity: nextError ? 'CRITICAL' : 'INFO',
+          alertTitle: nextError ? 'OHT 오류' : 'OHT 복구',
+          alertMessage: `${selectedOht.ohtId} 장비를 ${nextError ? '오류 처리' : '복구 처리'}했습니다.`,
+        }),
+        ...current,
+      ].slice(0, 24))
+      await loadControlRoom()
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : 'OHT 조치에 실패했습니다.')
+    } finally {
+      setWorkingAction(false)
+    }
+  }
+
   return (
     <main className="control-shell">
       <header className="control-topbar">
@@ -403,7 +446,12 @@ function App() {
         <aside className="side-stack">
           <section className="pane oht-pane">
             <PaneHeader title="OHT 장비 상태" right={selectedOht?.ohtId ?? '-'} />
-            <OhtDetail oht={selectedOht} transfer={selectedTransfer} />
+            <OhtDetail
+              disabled={workingAction || !selectedOht}
+              oht={selectedOht}
+              transfer={selectedTransfer}
+              onToggleError={handleToggleSelectedOhtError}
+            />
             <OhtTable ohts={liveOhts.length > 0 ? liveOhts : ohts} selectedOhtId={selectedOht?.ohtId ?? null} onSelect={setSelectedOhtId} />
           </section>
 
@@ -627,7 +675,17 @@ function FabMapCanvas({
   )
 }
 
-function OhtDetail({ oht, transfer }: { oht: OhtResponse | null; transfer: LiveTransfer | null }) {
+function OhtDetail({
+  disabled,
+  oht,
+  transfer,
+  onToggleError,
+}: {
+  disabled: boolean
+  oht: OhtResponse | null
+  transfer: LiveTransfer | null
+  onToggleError: () => void
+}) {
   if (!oht) return <div className="empty-state compact">OHT 정보가 없습니다.</div>
 
   return (
@@ -635,6 +693,16 @@ function OhtDetail({ oht, transfer }: { oht: OhtResponse | null; transfer: LiveT
       <div>
         <strong>{oht.ohtId}</strong>
         <StatusBadge status={oht.status} />
+      </div>
+      <div className="operator-actions">
+        <button
+          className={oht.status === 'ERROR' ? 'secondary-action' : 'danger-action'}
+          disabled={disabled}
+          type="button"
+          onClick={onToggleError}
+        >
+          {oht.status === 'ERROR' ? 'OHT 복구' : 'OHT 오류 처리'}
+        </button>
       </div>
       <dl>
         <dt>현재 위치</dt>
