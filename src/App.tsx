@@ -101,6 +101,8 @@ const eventFilters: Array<{ label: string; value: EventFilter }> = [
   { label: '경로', value: 'ROUTE' },
 ]
 
+const operators = ['operator01', 'operator02', 'maintenance01']
+
 const terminalTransferStatuses = new Set<TransferStatus>(['COMPLETED', 'FAILED', 'CANCELED'])
 
 function App() {
@@ -128,6 +130,7 @@ function App() {
   const [workingAction, setWorkingAction] = useState(false)
   const [transferCancelReason, setTransferCancelReason] = useState('관제 화면에서 운영자 취소')
   const [edgeBlockReason, setEdgeBlockReason] = useState('관제 화면에서 운영자 차단')
+  const [operatorId, setOperatorId] = useState('operator01')
 
   const loadControlRoom = useCallback(async () => {
     setError(null)
@@ -269,7 +272,7 @@ function App() {
     const reason = transferCancelReason.trim() || '관제 화면에서 운영자 취소'
     try {
       if (!selectedTransfer.demo) {
-        await cancelTransferRequest(selectedTransfer.requestId, reason)
+        await cancelTransferRequest(selectedTransfer.requestId, reason, operatorId)
       }
       setLiveTransfers((current) =>
         current.map((transfer) =>
@@ -315,9 +318,9 @@ function App() {
     const reason = edgeBlockReason.trim() || '관제 화면에서 운영자 차단'
     try {
       if (nextBlocked) {
-        await blockFabEdge(selectedEdge.edgeId, reason)
+        await blockFabEdge(selectedEdge.edgeId, reason, operatorId)
       } else {
-        await unblockFabEdge(selectedEdge.edgeId)
+        await unblockFabEdge(selectedEdge.edgeId, operatorId)
       }
       setLiveFabMap((current) => ({
         ...current,
@@ -354,8 +357,8 @@ function App() {
     const nextError = selectedOht.status !== 'ERROR'
     try {
       const response = nextError
-        ? await markOhtError(selectedOht.ohtId)
-        : await recoverOht(selectedOht.ohtId)
+        ? await markOhtError(selectedOht.ohtId, operatorId)
+        : await recoverOht(selectedOht.ohtId, operatorId)
       setLiveOhts((current) =>
         current.map((oht) =>
           oht.ohtId === selectedOht.ohtId
@@ -404,6 +407,16 @@ function App() {
           <StatusText label="SSE" value={streamConnected ? '연결 정상' : '대기'} active={streamConnected} />
           <StatusText label="이벤트" value={`${demoStatus?.emittedEvents ?? 0}건`} />
           <StatusText label="마지막 수신" value={formatTime(events[0]?.occurredAt ?? demoStatus?.lastEventAt ?? lastLoadedAt)} />
+          <label className="operator-select">
+            <span>운영자</span>
+            <select value={operatorId} onChange={(event) => setOperatorId(event.target.value)}>
+              {operators.map((operator) => (
+                <option key={operator} value={operator}>
+                  {operator}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </header>
 

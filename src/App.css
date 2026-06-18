@@ -74,10 +74,41 @@ h1 {
   padding: 0 14px;
 }
 
+.operator-select {
+  align-items: center;
+  border-left: 1px solid #253748;
+  display: flex;
+  gap: 10px;
+  min-height: 30px;
+  padding-left: 14px;
+}
+
 .status-text em {
   color: #8fa1b2;
   font-size: 12px;
   font-style: normal;
+}
+
+.operator-select span {
+  color: #8fa1b2;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.operator-select select {
+  background: #07131d;
+  border: 1px solid #263847;
+  border-radius: 2px;
+  color: #dce8f3;
+  font-size: 12px;
+  height: 28px;
+  min-width: 132px;
+  padding: 0 8px;
+}
+
+.operator-select select:focus {
+  border-color: #2f81f7;
+  outline: 1px solid rgba(47, 129, 247, 0.36);
 }
 
 .status-text strong {
@@ -945,6 +976,13 @@ h1 {
   }
 
   .status-text {
+    border-left: 0;
+    border-top: 1px solid #2c4256;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+
+  .operator-select {
     border-left: 0;
     border-top: 1px solid #2c4256;
     justify-content: space-between;

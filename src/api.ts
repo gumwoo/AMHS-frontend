@@ -256,30 +256,45 @@ export async function tickDemoMonitoring(): Promise<DemoMonitoringActionResponse
   return sendJson<DemoMonitoringActionResponse>('/demo-monitoring/tick', { method: 'POST' })
 }
 
-export async function cancelTransferRequest(requestId: number, reason: string): Promise<TransferRequestResponse> {
+export async function cancelTransferRequest(
+  requestId: number,
+  reason: string,
+  operatorId: string,
+): Promise<TransferRequestResponse> {
   return sendJson<TransferRequestResponse>(`/transfer-requests/${requestId}/cancel`, {
     method: 'POST',
+    headers: operatorHeaders(operatorId),
     body: JSON.stringify({ reason }),
   })
 }
 
-export async function blockFabEdge(edgeId: string, reason: string): Promise<unknown> {
+export async function blockFabEdge(edgeId: string, reason: string, operatorId: string): Promise<unknown> {
   return sendJson(`/fab-edges/${edgeId}/block`, {
     method: 'POST',
+    headers: operatorHeaders(operatorId),
     body: JSON.stringify({ reason }),
   })
 }
 
-export async function unblockFabEdge(edgeId: string): Promise<unknown> {
-  return sendJson(`/fab-edges/${edgeId}/unblock`, { method: 'POST' })
+export async function unblockFabEdge(edgeId: string, operatorId: string): Promise<unknown> {
+  return sendJson(`/fab-edges/${edgeId}/unblock`, {
+    method: 'POST',
+    headers: operatorHeaders(operatorId),
+  })
 }
 
-export async function markOhtError(ohtId: string): Promise<OhtResponse> {
-  return sendJson<OhtResponse>(`/ohts/${ohtId}/error`, { method: 'POST' })
+export async function markOhtError(ohtId: string, operatorId: string): Promise<OhtResponse> {
+  return sendJson<OhtResponse>(`/ohts/${ohtId}/error`, {
+    method: 'POST',
+    headers: operatorHeaders(operatorId),
+  })
 }
 
-export async function recoverOht(ohtId: string): Promise<OhtResponse> {
-  return sendJson<OhtResponse>(`/ohts/${ohtId}/recover`, { method: 'POST' })
+export async function recoverOht(ohtId: string, operatorId: string): Promise<OhtResponse> {
+  return sendJson<OhtResponse>(`/ohts/${ohtId}/recover`, {
+    method: 'POST',
+    headers: operatorHeaders(operatorId),
+  })
 }
 
 export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void): EventSource {
@@ -311,6 +326,10 @@ export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void):
 
 async function getJson<T>(path: string): Promise<T> {
   return sendJson<T>(path, { method: 'GET' })
+}
+
+function operatorHeaders(operatorId: string): HeadersInit {
+  return operatorId.trim() ? { 'X-Operator-Id': operatorId.trim() } : {}
 }
 
 async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
