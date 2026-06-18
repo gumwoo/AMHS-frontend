@@ -237,6 +237,24 @@ export async function tickDemoMonitoring(): Promise<DemoMonitoringActionResponse
   return sendJson<DemoMonitoringActionResponse>('/demo-monitoring/tick', { method: 'POST' })
 }
 
+export async function cancelTransferRequest(requestId: number, reason: string): Promise<TransferRequestResponse> {
+  return sendJson<TransferRequestResponse>(`/transfer-requests/${requestId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function blockFabEdge(edgeId: string, reason: string): Promise<unknown> {
+  return sendJson(`/fab-edges/${edgeId}/block`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function unblockFabEdge(edgeId: string): Promise<unknown> {
+  return sendJson(`/fab-edges/${edgeId}/unblock`, { method: 'POST' })
+}
+
 export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void): EventSource {
   const source = new EventSource(`${API_BASE_URL}/api/monitoring/stream`)
   const eventTypes = [

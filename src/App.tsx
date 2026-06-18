@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  blockFabEdge,
+  cancelTransferRequest,
   getAnalyticsSummary,
   getBottlenecks,
   getDemoMonitoringStatus,
@@ -11,6 +13,7 @@ import {
   startDemoMonitoring,
   stopDemoMonitoring,
   tickDemoMonitoring,
+  unblockFabEdge,
   type AlertSeverity,
   type AnalyticsSummaryResponse,
   type BottleneckResponse,
@@ -94,6 +97,8 @@ const eventFilters: Array<{ label: string; value: EventFilter }> = [
   { label: '경로', value: 'ROUTE' },
 ]
 
+const terminalTransferStatuses = new Set<TransferStatus>(['COMPLETED', 'FAILED', 'CANCELED'])
+
 function App() {
   const [overview, setOverview] = useState<OperationsOverviewResponse>(emptyOverview)
   const [transfers, setTransfers] = useState<PageResponse<TransferRequestResponse>>(emptyTransfers)
@@ -111,9 +116,11 @@ function App() {
   const [eventFilter, setEventFilter] = useState<EventFilter>('ALL')
   const [selectedOhtId, setSelectedOhtId] = useState('OHT-01')
   const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null)
   const [workingDemo, setWorkingDemo] = useState(false)
+  const [workingAction, setWorkingAction] = useState(false)
 
   const loadControlRoom = useCallback(async () => {
     setError(null)
@@ -140,6 +147,7 @@ function App() {
       setDemoStatus(demoData)
       setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
       setSelectedTransferId((current) => current ?? transferData.content[0]?.requestId ?? null)
+      setSelectedEdgeId((current) => current ?? mapData.edges[0]?.edgeId ?? null)
       setLastLoadedAt(new Date().toISOString())
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : '관제 데이터를 불러오지 못했습니다.')
@@ -180,7 +188,7 @@ function App() {
   }, [applyMonitoringEvent])
 
   const visibleTransfers = useMemo(() => {
-    const rows = liveTransfers.length > 0 ? liveTransfers : transfers.content
+    const rows: LiveTransfer[] = liveTransfers.length > 0 ? liveTransfers : transfers.content
     return statusFilter ? rows.filter((row) => row.status === statusFilter) : rows
   }, [liveTransfers, statusFilter, transfers.content])
 
@@ -210,6 +218,11 @@ function App() {
     return events.filter((event) => numberValue(event.requestId) === selectedTransfer.requestId).slice(0, 5)
   }, [events, selectedTransfer])
 
+  const selectedEdge = useMemo(() => {
+    const map = liveFabMap.edges.length > 0 ? liveFabMap : fabMap
+    return map.edges.find((edge) => edge.edgeId === selectedEdgeId) ?? map.edges[0] ?? null
+  }, [fabMap, liveFabMap, selectedEdgeId])
+
   const liveCounts = useMemo(() => countLiveState(overview, visibleTransfers, liveOhts, liveFabMap), [
     overview,
     visibleTransfers,
@@ -228,6 +241,85 @@ function App() {
       setError(exception instanceof Error ? exception.message : '데모 모니터링 제어에 실패했습니다.')
     } finally {
       setWorkingDemo(false)
+    }
+  }
+
+  async function handleCancelSelectedTransfer() {
+    if (!selectedTransfer) return
+    setWorkingAction(true)
+    setError(null)
+    const occurredAt = new Date().toISOString()
+    try {
+      if (!selectedTransfer.demo) {
+        await cancelTransferRequest(selectedTransfer.requestId, '관제 화면에서 운영자 취소')
+      }
+      setLiveTransfers((current) =>
+        current.map((transfer) =>
+          transfer.requestId === selectedTransfer.requestId
+            ? {
+                ...transfer,
+                status: 'CANCELED',
+                completedAt: occurredAt,
+                failedReason: '관제 화면에서 운영자 취소',
+                updatedAt: occurredAt,
+              }
+            : transfer,
+        ),
+      )
+      setEvents((current) => [
+        createLocalEvent('TRANSFER_CANCELED', occurredAt, {
+          requestId: selectedTransfer.requestId,
+          ohtId: selectedTransfer.assignedOhtId,
+          alertSeverity: 'WARNING',
+          alertTitle: '반송 취소',
+          alertMessage: `반송 작업 #${selectedTransfer.requestId}을 취소했습니다.`,
+        }),
+        ...current,
+      ].slice(0, 24))
+      if (!selectedTransfer.demo) {
+        await loadControlRoom()
+      }
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : '반송 작업 취소에 실패했습니다.')
+    } finally {
+      setWorkingAction(false)
+    }
+  }
+
+  async function handleToggleSelectedEdge() {
+    if (!selectedEdge) return
+    setWorkingAction(true)
+    setError(null)
+    const occurredAt = new Date().toISOString()
+    const nextBlocked = !selectedEdge.blocked
+    try {
+      if (nextBlocked) {
+        await blockFabEdge(selectedEdge.edgeId, '관제 화면에서 운영자 차단')
+      } else {
+        await unblockFabEdge(selectedEdge.edgeId)
+      }
+      setLiveFabMap((current) => ({
+        ...current,
+        edges: current.edges.map((edge) =>
+          edge.edgeId === selectedEdge.edgeId ? { ...edge, blocked: nextBlocked } : edge,
+        ),
+      }))
+      setEvents((current) => [
+        createLocalEvent(nextBlocked ? 'EDGE_BLOCKED' : 'EDGE_UNBLOCKED', occurredAt, {
+          edgeId: selectedEdge.edgeId,
+          fromNodeId: selectedEdge.fromNodeId,
+          toNodeId: selectedEdge.toNodeId,
+          alertSeverity: nextBlocked ? 'WARNING' : 'INFO',
+          alertTitle: nextBlocked ? '경로 차단' : '경로 차단 해제',
+          alertMessage: `${selectedEdge.edgeId} 구간을 ${nextBlocked ? '차단' : '해제'}했습니다.`,
+        }),
+        ...current,
+      ].slice(0, 24))
+      await loadControlRoom()
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : '경로 조치에 실패했습니다.')
+    } finally {
+      setWorkingAction(false)
     }
   }
 
@@ -301,7 +393,9 @@ function App() {
             events={events}
             map={liveFabMap.nodes.length > 0 ? liveFabMap : fabMap}
             ohts={liveOhts.length > 0 ? liveOhts : ohts}
+            selectedEdgeId={selectedEdge?.edgeId ?? null}
             selectedOhtId={selectedOht?.ohtId ?? null}
+            onSelectEdge={setSelectedEdgeId}
             onSelectOht={setSelectedOhtId}
           />
         </section>
@@ -336,11 +430,21 @@ function App() {
 
         <section className="pane transfer-detail-pane">
           <PaneHeader title="선택 작업 상세" right={selectedTransfer ? `#${selectedTransfer.requestId}` : '-'} />
-          <TransferDetail transfer={selectedTransfer} events={selectedTransferEvents} />
+          <TransferDetail
+            disabled={workingAction || !selectedTransfer || terminalTransferStatuses.has(selectedTransfer.status)}
+            events={selectedTransferEvents}
+            transfer={selectedTransfer}
+            onCancel={handleCancelSelectedTransfer}
+          />
         </section>
 
         <section className="pane bottleneck-pane">
           <PaneHeader title="병목 구간" right={`${liveCounts.blockedEdges} blocked`} />
+          <EdgeActionPanel
+            disabled={workingAction || !selectedEdge}
+            edge={selectedEdge}
+            onToggle={handleToggleSelectedEdge}
+          />
           <BottleneckTable rows={bottlenecks} />
         </section>
       </section>
@@ -423,13 +527,17 @@ function FabMapCanvas({
   events,
   map,
   ohts,
+  selectedEdgeId,
   selectedOhtId,
+  onSelectEdge,
   onSelectOht,
 }: {
   events: MonitoringEvent[]
   map: FabMapResponse
   ohts: OhtResponse[]
+  selectedEdgeId: string | null
   selectedOhtId: string | null
+  onSelectEdge: (edgeId: string) => void
   onSelectOht: (ohtId: string) => void
 }) {
   const nodeById = new Map(map.nodes.map((node) => [node.nodeId, node]))
@@ -457,9 +565,16 @@ function FabMapCanvas({
           const toPoint = toSvgPoint(to, bounds)
           const moving = activeEdge?.fromNodeId === edge.fromNodeId && activeEdge?.toNodeId === edge.toNodeId
           return (
-            <g key={edge.edgeId}>
+            <g className="edge-group" key={edge.edgeId} onClick={() => onSelectEdge(edge.edgeId)}>
               <line
-                className={`track-line ${edge.blocked ? 'blocked' : ''} ${moving ? 'moving' : ''}`}
+                className="track-hit"
+                x1={fromPoint.x}
+                x2={toPoint.x}
+                y1={fromPoint.y}
+                y2={toPoint.y}
+              />
+              <line
+                className={`track-line ${edge.blocked ? 'blocked' : ''} ${moving ? 'moving' : ''} ${selectedEdgeId === edge.edgeId ? 'selected' : ''}`}
                 x1={fromPoint.x}
                 x2={toPoint.x}
                 y1={fromPoint.y}
@@ -537,7 +652,17 @@ function OhtDetail({ oht, transfer }: { oht: OhtResponse | null; transfer: LiveT
   )
 }
 
-function TransferDetail({ transfer, events }: { transfer: LiveTransfer | null; events: MonitoringEvent[] }) {
+function TransferDetail({
+  disabled,
+  events,
+  transfer,
+  onCancel,
+}: {
+  disabled: boolean
+  events: MonitoringEvent[]
+  transfer: LiveTransfer | null
+  onCancel: () => void
+}) {
   if (!transfer) {
     return <div className="empty-state compact">선택된 반송 작업이 없습니다.</div>
   }
@@ -548,6 +673,11 @@ function TransferDetail({ transfer, events }: { transfer: LiveTransfer | null; e
         <strong>#{transfer.requestId}</strong>
         <StatusBadge status={transfer.status} />
         <PriorityBadge priority={transfer.priority} />
+      </div>
+      <div className="operator-actions">
+        <button className="danger-action" disabled={disabled} type="button" onClick={onCancel}>
+          작업 취소
+        </button>
       </div>
       <dl>
         <dt>경로</dt>
@@ -574,6 +704,43 @@ function TransferDetail({ transfer, events }: { transfer: LiveTransfer | null; e
           ))
         )}
       </div>
+    </div>
+  )
+}
+
+function EdgeActionPanel({
+  disabled,
+  edge,
+  onToggle,
+}: {
+  disabled: boolean
+  edge: FabMapResponse['edges'][number] | null
+  onToggle: () => void
+}) {
+  if (!edge) {
+    return <div className="empty-state compact">선택된 edge가 없습니다.</div>
+  }
+
+  return (
+    <div className="edge-action-panel">
+      <dl>
+        <dt>구간</dt>
+        <dd>{edge.fromNodeId} → {edge.toNodeId}</dd>
+        <dt>예상 시간</dt>
+        <dd>{edge.estimatedTravelSeconds}초</dd>
+        <dt>거리</dt>
+        <dd>{edge.distanceMeters.toFixed(1)}m</dd>
+        <dt>상태</dt>
+        <dd>{edge.blocked ? '차단' : '정상'}</dd>
+      </dl>
+      <button
+        className={edge.blocked ? 'secondary-action' : 'danger-action'}
+        disabled={disabled}
+        type="button"
+        onClick={onToggle}
+      >
+        {edge.blocked ? '차단 해제' : '구간 차단'}
+      </button>
     </div>
   )
 }
@@ -826,6 +993,15 @@ function numberValue(value: unknown) {
     return Number.isNaN(parsed) ? null : parsed
   }
   return null
+}
+
+function createLocalEvent(eventType: string, occurredAt: string, data: Record<string, unknown>): MonitoringEvent {
+  return {
+    eventId: `local_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    eventType,
+    occurredAt,
+    ...data,
+  }
 }
 
 function severityClass(severity?: AlertSeverity) {
