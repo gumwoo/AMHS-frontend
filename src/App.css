@@ -194,6 +194,10 @@ h1 {
   overflow: auto;
 }
 
+.queue-pane .table-wrap {
+  overflow-x: hidden;
+}
+
 .ops-table,
 .oht-table {
   border-collapse: collapse;
@@ -213,8 +217,50 @@ h1 {
 
 .queue-pane .ops-table th,
 .queue-pane .ops-table td {
-  padding-left: 6px;
-  padding-right: 6px;
+  font-size: 11px;
+  overflow: hidden;
+  padding-left: 5px;
+  padding-right: 5px;
+  text-overflow: ellipsis;
+}
+
+.queue-pane .ops-table {
+  table-layout: fixed;
+}
+
+.queue-pane .ops-table th:nth-child(1),
+.queue-pane .ops-table td:nth-child(1) {
+  width: 42px;
+}
+
+.queue-pane .ops-table th:nth-child(2),
+.queue-pane .ops-table td:nth-child(2) {
+  width: 70px;
+}
+
+.queue-pane .ops-table th:nth-child(3),
+.queue-pane .ops-table td:nth-child(3) {
+  width: 78px;
+}
+
+.queue-pane .ops-table th:nth-child(4),
+.queue-pane .ops-table td:nth-child(4) {
+  width: 46px;
+}
+
+.queue-pane .ops-table th:nth-child(5),
+.queue-pane .ops-table td:nth-child(5) {
+  width: 54px;
+}
+
+.queue-pane .ops-table th:nth-child(6),
+.queue-pane .ops-table td:nth-child(6) {
+  width: 52px;
+}
+
+.queue-pane .ops-table th:nth-child(7),
+.queue-pane .ops-table td:nth-child(7) {
+  width: 36px;
 }
 
 .ops-table th {
@@ -231,6 +277,14 @@ h1 {
 .oht-table tr:hover,
 .oht-table tr.selected {
   background: rgba(47, 129, 247, 0.12);
+}
+
+.ops-table tbody tr.demo-row {
+  background: rgba(8, 145, 178, 0.08);
+}
+
+.ops-table tbody tr.demo-row:hover {
+  background: rgba(8, 145, 178, 0.16);
 }
 
 .state,
