@@ -502,7 +502,7 @@ function App() {
         </section>
 
         <section className="pane bottleneck-pane">
-          <PaneHeader title="병목 구간" right={`${liveCounts.blockedEdges} blocked`} />
+          <PaneHeader title="병목 구간" right={`차단 ${liveCounts.blockedEdges}건`} />
           <EdgeActionPanel
             disabled={workingAction || !selectedEdge}
             edge={selectedEdge}
@@ -787,7 +787,7 @@ function TransferDetail({
         ) : (
           events.map((event) => (
             <span key={event.eventId}>
-              {formatTime(event.occurredAt)} · {event.eventType}
+              {formatTime(event.occurredAt)} · {eventTypeLabel(event.eventType)}
             </span>
           ))
         )}
@@ -844,7 +844,7 @@ function OperationActionLogList({ logs }: { logs: OperationActionLogResponse[] }
         <article className="action-log-row" key={log.actionLogId}>
           <time>{formatTime(log.createdAt)}</time>
           <strong>{actionTypeLabel(log.actionType)}</strong>
-          <span>{log.targetType} · {log.targetId}</span>
+          <span>{targetTypeLabel(log.targetType)} · {log.targetId}</span>
           <small>{log.operatorId} · {log.reason}</small>
         </article>
       ))}
@@ -897,7 +897,7 @@ function EventLog({ events }: { events: MonitoringEvent[] }) {
       {events.map((event) => (
         <article className={`event-row ${severityClass(event.alertSeverity)}`} key={event.eventId}>
           <time>{formatTime(event.occurredAt)}</time>
-          <strong>{event.eventType}</strong>
+          <strong>{eventTypeLabel(event.eventType)}</strong>
           <span>{event.alertMessage ?? event.alertTitle ?? '-'}</span>
         </article>
       ))}
@@ -1120,6 +1120,34 @@ function actionTypeLabel(actionType: OperationActionLogResponse['actionType']) {
     OHT_RECOVERED: 'OHT 복구',
   }
   return labels[actionType]
+}
+
+function targetTypeLabel(targetType: OperationActionLogResponse['targetType']) {
+  const labels: Record<OperationActionLogResponse['targetType'], string> = {
+    TRANSFER: '반송작업',
+    EDGE: '구간',
+    OHT: 'OHT',
+  }
+  return labels[targetType]
+}
+
+function eventTypeLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    TRANSFER_CREATED: '반송 요청',
+    OHT_ASSIGNED: 'OHT 배정',
+    TRANSFER_STARTED: '반송 시작',
+    OHT_MOVED: 'OHT 이동',
+    TRANSFER_COMPLETED: '반송 완료',
+    TRANSFER_DELAYED: '반송 지연',
+    TRANSFER_FAILED: '반송 실패',
+    TRANSFER_CANCELED: '반송 취소',
+    OHT_ERROR_OCCURRED: 'OHT 오류',
+    OHT_RECOVERED: 'OHT 복구',
+    EDGE_BLOCKED: '구간 차단',
+    EDGE_UNBLOCKED: '차단 해제',
+    ROUTE_NOT_FOUND: '경로 없음',
+  }
+  return labels[eventType] ?? eventType
 }
 
 function severityClass(severity?: AlertSeverity) {
