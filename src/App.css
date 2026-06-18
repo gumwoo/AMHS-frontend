@@ -208,6 +208,20 @@ h1 {
   align-items: start;
 }
 
+.fab-layout {
+  align-items: start;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  margin: 0 auto;
+  max-width: 1280px;
+}
+
+.fab-side {
+  display: grid;
+  gap: 12px;
+}
+
 .panel {
   min-height: 260px;
   min-width: 0;
@@ -498,6 +512,216 @@ select:focus {
   color: #b42318;
 }
 
+.fab-canvas {
+  background:
+    radial-gradient(circle at 22% 18%, rgba(46, 144, 250, 0.16), transparent 28%),
+    linear-gradient(135deg, #081827 0%, #0d2233 56%, #102b3c 100%);
+  border: 1px solid #24445d;
+  border-radius: 8px;
+  min-height: 560px;
+  overflow: hidden;
+}
+
+.fab-canvas svg {
+  display: block;
+  height: 560px;
+  width: 100%;
+}
+
+.fab-grid-bg {
+  fill: url("#fab-grid");
+}
+
+.map-edge-hit {
+  cursor: pointer;
+}
+
+.map-edge-hit-line {
+  stroke: transparent;
+  stroke-linecap: round;
+  stroke-width: 22;
+}
+
+.map-edge {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.3));
+  stroke: #9aa7b5;
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.map-edge.selected {
+  filter: url("#route-glow");
+  stroke: #2e90fa;
+  stroke-width: 7;
+}
+
+.map-edge.blocked {
+  stroke: #ff4d4f;
+  stroke-dasharray: 10 8;
+}
+
+.edge-label {
+  fill: #c8d7e5;
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+  text-anchor: middle;
+}
+
+.map-node circle {
+  fill: #d9e4ef;
+  stroke: #0b1521;
+  stroke-width: 2;
+}
+
+.map-node rect {
+  fill: rgba(15, 29, 43, 0.92);
+  stroke: #5d6b7a;
+  stroke-width: 1.5;
+}
+
+.map-node text {
+  dominant-baseline: middle;
+  fill: #d9e4ef;
+  font-size: 13px;
+  font-weight: 900;
+  pointer-events: none;
+  text-anchor: middle;
+}
+
+.map-node.stocker rect,
+.map-node.charger rect {
+  stroke: #4ade80;
+}
+
+.map-node.eqp rect {
+  stroke: #94a3b8;
+}
+
+.map-node.junction rect {
+  stroke: #38bdf8;
+}
+
+.map-node.inactive {
+  opacity: 0.45;
+}
+
+.edge-control {
+  display: grid;
+  gap: 12px;
+}
+
+.edge-summary {
+  background: #f8fafc;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.edge-summary strong {
+  color: #1d2939;
+  font-size: 17px;
+}
+
+.edge-summary span,
+.edge-control label {
+  color: #667085;
+  font-size: 13px;
+}
+
+.edge-control label {
+  display: grid;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.edge-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr 38px;
+}
+
+.danger-text {
+  color: #b42318;
+}
+
+.status-badge {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 8px;
+}
+
+.status-badge.normal {
+  background: #e7f8ef;
+  color: #067647;
+}
+
+.status-badge.blocked {
+  background: #fff0ed;
+  color: #b42318;
+}
+
+.edge-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.edge-list-row {
+  align-items: center;
+  background: #fbfcfe;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  color: #344054;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 10px 80px minmax(0, 1fr) auto;
+  min-height: 48px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.edge-list-row.selected {
+  border-color: #2e90fa;
+  box-shadow: 0 0 0 2px rgba(46, 144, 250, 0.12);
+}
+
+.edge-list-row strong {
+  color: #1d2939;
+  font-size: 13px;
+}
+
+.edge-list-row span {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-list-row small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.edge-led {
+  background: #12b76a;
+  border-radius: 999px;
+  height: 8px;
+  width: 8px;
+}
+
+.edge-led.blocked {
+  background: #f04438;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     padding: 16px;
@@ -510,7 +734,8 @@ select:focus {
 
   .status-strip,
   .dashboard-grid,
-  .transfer-layout {
+  .transfer-layout,
+  .fab-layout {
     grid-template-columns: 1fr;
   }
 
@@ -521,5 +746,11 @@ select:focus {
 
   .filter-bar {
     grid-template-columns: 1fr;
+  }
+
+  .fab-canvas,
+  .fab-canvas svg {
+    height: 420px;
+    min-height: 420px;
   }
 }

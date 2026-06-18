@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bell,
   Blocks,
+  Ban,
   CheckCircle2,
   CircleGauge,
   Clock3,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   Route,
   Send,
+  ShieldCheck,
   Truck,
   Wifi,
   WifiOff,
@@ -18,13 +20,19 @@ import {
 } from 'lucide-react'
 import {
   assignTransferRequest,
+  blockFabEdge,
   cancelTransferRequest,
   createTransferRequest,
+  getFabMap,
   getOperationsOverview,
   getTransferRequests,
   openMonitoringStream,
   startTransferRequest,
+  unblockFabEdge,
   type AlertSeverity,
+  type FabEdgeResponse,
+  type FabMapResponse,
+  type FabNodeResponse,
   type MonitoringEvent,
   type OperationsOverviewResponse,
   type PageResponse,
@@ -34,7 +42,7 @@ import {
 } from './api'
 import './App.css'
 
-type ViewMode = 'dashboard' | 'transfers'
+type ViewMode = 'dashboard' | 'transfers' | 'fab'
 
 const emptyOverview: OperationsOverviewResponse = {
   counts: {
@@ -68,6 +76,11 @@ const emptyTransferPage: PageResponse<TransferRequestResponse> = {
 const transferStatuses: Array<TransferStatus | ''> = ['', 'WAITING', 'ASSIGNED', 'MOVING', 'COMPLETED', 'FAILED', 'CANCELED']
 const priorities: TransferPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT']
 
+const emptyFabMap: FabMapResponse = {
+  nodes: [],
+  edges: [],
+}
+
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard')
   const [overview, setOverview] = useState<OperationsOverviewResponse>(emptyOverview)
@@ -89,6 +102,11 @@ function App() {
   })
   const [ohtInputs, setOhtInputs] = useState<Record<number, string>>({})
   const [workingRequestId, setWorkingRequestId] = useState<number | null>(null)
+  const [fabMap, setFabMap] = useState<FabMapResponse>(emptyFabMap)
+  const [fabError, setFabError] = useState<string | null>(null)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
+  const [edgeReason, setEdgeReason] = useState('운영자 차단')
+  const [workingEdgeId, setWorkingEdgeId] = useState<string | null>(null)
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -122,9 +140,20 @@ function App() {
     }
   }, [priorityFilter, statusFilter])
 
+  const loadFabMap = useCallback(async () => {
+    setFabError(null)
+    try {
+      const data = await getFabMap()
+      setFabMap(data)
+      setSelectedEdgeId((current) => current ?? data.edges[0]?.edgeId ?? null)
+    } catch (exception) {
+      setFabError(exception instanceof Error ? exception.message : 'FAB 맵을 불러오지 못했습니다.')
+    }
+  }, [])
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadOverview(), loadTransfers()])
-  }, [loadOverview, loadTransfers])
+    await Promise.all([loadOverview(), loadTransfers(), loadFabMap()])
+  }, [loadFabMap, loadOverview, loadTransfers])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -136,7 +165,12 @@ function App() {
   useEffect(() => {
     const source = openMonitoringStream((event) => {
       setEvents((current) => [event, ...current].slice(0, 8))
-      if (event.eventType.startsWith('TRANSFER_') || event.eventType === 'OHT_ASSIGNED') {
+      if (
+        event.eventType.startsWith('TRANSFER_') ||
+        event.eventType === 'OHT_ASSIGNED' ||
+        event.eventType === 'EDGE_BLOCKED' ||
+        event.eventType === 'EDGE_UNBLOCKED'
+      ) {
         void refreshAll()
       }
     })
@@ -182,6 +216,19 @@ function App() {
     }
   }
 
+  async function runEdgeAction(edgeId: string, action: () => Promise<unknown>) {
+    setWorkingEdgeId(edgeId)
+    setFabError(null)
+    try {
+      await action()
+      await refreshAll()
+    } catch (exception) {
+      setFabError(exception instanceof Error ? exception.message : 'FAB edge 처리에 실패했습니다.')
+    } finally {
+      setWorkingEdgeId(null)
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -207,6 +254,9 @@ function App() {
         <button className={viewMode === 'transfers' ? 'active' : ''} type="button" onClick={() => setViewMode('transfers')}>
           반송 요청
         </button>
+        <button className={viewMode === 'fab' ? 'active' : ''} type="button" onClick={() => setViewMode('fab')}>
+          FAB 맵
+        </button>
       </nav>
 
       <section className="status-strip" aria-label="운영 요약">
@@ -230,7 +280,7 @@ function App() {
           lastUpdatedAt={lastUpdatedAt}
           overview={overview}
         />
-      ) : (
+      ) : viewMode === 'transfers' ? (
         <TransferView
           createForm={createForm}
           ohtInputs={ohtInputs}
@@ -253,6 +303,19 @@ function App() {
           onStart={(requestId) => runTransferAction(requestId, () => startTransferRequest(requestId))}
           onStatusFilterChange={setStatusFilter}
           onUpdateCreateForm={setCreateForm}
+        />
+      ) : (
+        <FabMapView
+          edgeReason={edgeReason}
+          error={fabError}
+          fabMap={fabMap}
+          selectedEdgeId={selectedEdgeId}
+          workingEdgeId={workingEdgeId}
+          onBlockEdge={(edgeId) => runEdgeAction(edgeId, () => blockFabEdge(edgeId, edgeReason))}
+          onRefresh={loadFabMap}
+          onSelectEdge={setSelectedEdgeId}
+          onSetReason={setEdgeReason}
+          onUnblockEdge={(edgeId) => runEdgeAction(edgeId, () => unblockFabEdge(edgeId))}
         />
       )}
     </main>
@@ -557,6 +620,211 @@ function TransferView({
   )
 }
 
+function FabMapView({
+  edgeReason,
+  error,
+  fabMap,
+  selectedEdgeId,
+  workingEdgeId,
+  onBlockEdge,
+  onRefresh,
+  onSelectEdge,
+  onSetReason,
+  onUnblockEdge,
+}: {
+  edgeReason: string
+  error: string | null
+  fabMap: FabMapResponse
+  selectedEdgeId: string | null
+  workingEdgeId: string | null
+  onBlockEdge: (edgeId: string) => void
+  onRefresh: () => void
+  onSelectEdge: (edgeId: string) => void
+  onSetReason: (reason: string) => void
+  onUnblockEdge: (edgeId: string) => void
+}) {
+  const selectedEdge = fabMap.edges.find((edge) => edge.edgeId === selectedEdgeId) ?? fabMap.edges[0] ?? null
+  const nodeById = new Map(fabMap.nodes.map((node) => [node.nodeId, node]))
+  const blockedEdges = fabMap.edges.filter((edge) => edge.blocked)
+  const activeNodes = fabMap.nodes.filter((node) => node.active).length
+
+  return (
+    <section className="fab-layout">
+      <Panel title="FAB Map" action={`${fabMap.nodes.length} nodes · ${fabMap.edges.length} edges`}>
+        {error && (
+          <div className="inline-error">
+            <XCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+        <FabMapCanvas
+          edges={fabMap.edges}
+          nodes={fabMap.nodes}
+          selectedEdgeId={selectedEdge?.edgeId ?? null}
+          onSelectEdge={onSelectEdge}
+        />
+      </Panel>
+
+      <aside className="fab-side">
+        <Panel title="FAB 상태" action={<Route size={17} />}>
+          <div className="state-grid compact">
+            <StateCell label="ACTIVE NODE" value={activeNodes} />
+            <StateCell label="EDGE" value={fabMap.edges.length} />
+            <StateCell label="BLOCKED" value={blockedEdges.length} danger />
+            <StateCell label="NORMAL" value={fabMap.edges.length - blockedEdges.length} />
+          </div>
+        </Panel>
+
+        <Panel title="Edge 제어">
+          {selectedEdge ? (
+            <div className="edge-control">
+              <div className="edge-summary">
+                <strong>{selectedEdge.edgeId}</strong>
+                <span>
+                  {selectedEdge.fromNodeId} → {selectedEdge.toNodeId}
+                </span>
+                <StatusBadge active={!selectedEdge.blocked} />
+              </div>
+              <label>
+                차단 사유
+                <input value={edgeReason} onChange={(event) => onSetReason(event.target.value)} />
+              </label>
+              <div className="edge-actions">
+                <button
+                  className="secondary-button danger-text"
+                  disabled={selectedEdge.blocked || workingEdgeId === selectedEdge.edgeId}
+                  type="button"
+                  onClick={() => onBlockEdge(selectedEdge.edgeId)}
+                >
+                  <Ban size={16} />
+                  차단
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={!selectedEdge.blocked || workingEdgeId === selectedEdge.edgeId}
+                  type="button"
+                  onClick={() => onUnblockEdge(selectedEdge.edgeId)}
+                >
+                  <ShieldCheck size={16} />
+                  해제
+                </button>
+                <button className="icon-button" type="button" onClick={onRefresh} aria-label="FAB 맵 새로고침">
+                  <RefreshCw size={17} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <EmptyLine text="선택된 edge 없음" />
+          )}
+        </Panel>
+
+        <Panel title="Edge 목록" action={`${blockedEdges.length} blocked`}>
+          <div className="edge-list">
+            {fabMap.edges.length === 0 ? (
+              <EmptyLine text="FAB edge 없음" />
+            ) : (
+              fabMap.edges.map((edge) => {
+                const fromNode = nodeById.get(edge.fromNodeId)
+                const toNode = nodeById.get(edge.toNodeId)
+                return (
+                  <button
+                    className={`edge-list-row ${edge.edgeId === selectedEdge?.edgeId ? 'selected' : ''}`}
+                    key={edge.edgeId}
+                    type="button"
+                    onClick={() => onSelectEdge(edge.edgeId)}
+                  >
+                    <span className={edge.blocked ? 'edge-led blocked' : 'edge-led'} />
+                    <strong>{edge.edgeId}</strong>
+                    <span>
+                      {fromNode?.name ?? edge.fromNodeId} → {toNode?.name ?? edge.toNodeId}
+                    </span>
+                    <small>{edge.estimatedTravelSeconds}s</small>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </Panel>
+      </aside>
+    </section>
+  )
+}
+
+function FabMapCanvas({
+  edges,
+  nodes,
+  selectedEdgeId,
+  onSelectEdge,
+}: {
+  edges: FabEdgeResponse[]
+  nodes: FabNodeResponse[]
+  selectedEdgeId: string | null
+  onSelectEdge: (edgeId: string) => void
+}) {
+  const nodeById = new Map(nodes.map((node) => [node.nodeId, node]))
+  const bounds = getMapBounds(nodes)
+
+  if (nodes.length === 0) {
+    return <EmptyLine text="FAB 맵 데이터 없음" />
+  }
+
+  return (
+    <div className="fab-canvas">
+      <svg aria-label="FAB map" role="img" viewBox="0 0 1000 560">
+        <defs>
+          <pattern id="fab-grid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#1d3347" strokeWidth="1" />
+          </pattern>
+          <filter id="route-glow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <rect className="fab-grid-bg" width="1000" height="560" />
+        {edges.map((edge) => {
+          const fromNode = nodeById.get(edge.fromNodeId)
+          const toNode = nodeById.get(edge.toNodeId)
+          if (!fromNode || !toNode) {
+            return null
+          }
+          const from = toSvgPoint(fromNode, bounds)
+          const to = toSvgPoint(toNode, bounds)
+          return (
+            <g className="map-edge-hit" key={edge.edgeId} onClick={() => onSelectEdge(edge.edgeId)}>
+              <line className="map-edge-hit-line" x1={from.x} x2={to.x} y1={from.y} y2={to.y} />
+              <line
+                className={`map-edge ${edge.blocked ? 'blocked' : ''} ${edge.edgeId === selectedEdgeId ? 'selected' : ''}`}
+                x1={from.x}
+                x2={to.x}
+                y1={from.y}
+                y2={to.y}
+              />
+              <text className="edge-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 8}>
+                {edge.edgeId}
+              </text>
+            </g>
+          )
+        })}
+        {nodes.map((node) => {
+          const point = toSvgPoint(node, bounds)
+          return (
+            <g className={`map-node ${node.nodeType.toLowerCase()} ${node.active ? '' : 'inactive'}`} key={node.nodeId}>
+              <circle cx={point.x} cy={point.y} r="8" />
+              <rect height="28" rx="5" width="112" x={point.x - 56} y={point.y - 48} />
+              <text x={point.x} y={point.y - 30}>
+                {node.nodeId}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 function Metric({
   icon,
   label,
@@ -602,6 +870,10 @@ function StateCell({ label, value, danger = false }: { label: string; value: num
 
 function StatusPill({ status }: { status: TransferStatus }) {
   return <span className={`status-pill ${status.toLowerCase()}`}>{status}</span>
+}
+
+function StatusBadge({ active }: { active: boolean }) {
+  return <span className={active ? 'status-badge normal' : 'status-badge blocked'}>{active ? 'NORMAL' : 'BLOCKED'}</span>
 }
 
 function IssueList({
@@ -656,6 +928,29 @@ function formatTime(value: string | null) {
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date(value))
+}
+
+function getMapBounds(nodes: FabNodeResponse[]) {
+  const xs = nodes.map((node) => node.positionX)
+  const ys = nodes.map((node) => node.positionY)
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  }
+}
+
+function toSvgPoint(
+  node: FabNodeResponse,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+) {
+  const width = Math.max(1, bounds.maxX - bounds.minX)
+  const height = Math.max(1, bounds.maxY - bounds.minY)
+  return {
+    x: 90 + ((node.positionX - bounds.minX) / width) * 820,
+    y: 90 + ((node.positionY - bounds.minY) / height) * 380,
+  }
 }
 
 export default App

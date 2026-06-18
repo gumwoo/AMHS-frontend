@@ -10,6 +10,8 @@ export type TransferPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 
 export type OhtStatus = 'IDLE' | 'RESERVED' | 'MOVING' | 'ERROR'
 
+export type NodeType = 'STOCKER' | 'EQP' | 'CHARGER' | 'JUNCTION'
+
 export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
 
 export interface ApiResponse<T> {
@@ -112,6 +114,29 @@ export interface MonitoringEvent {
   [key: string]: unknown
 }
 
+export interface FabNodeResponse {
+  nodeId: string
+  nodeType: NodeType
+  name: string
+  positionX: number
+  positionY: number
+  active: boolean
+}
+
+export interface FabEdgeResponse {
+  edgeId: string
+  fromNodeId: string
+  toNodeId: string
+  distanceMeters: number
+  estimatedTravelSeconds: number
+  blocked: boolean
+}
+
+export interface FabMapResponse {
+  nodes: FabNodeResponse[]
+  edges: FabEdgeResponse[]
+}
+
 export interface TransferSearchParams {
   status?: TransferStatus | ''
   priority?: TransferPriority | ''
@@ -132,6 +157,21 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export async function getOperationsOverview(limit = 10): Promise<OperationsOverviewResponse> {
   return getJson<OperationsOverviewResponse>(`/operations/overview?limit=${limit}`)
+}
+
+export async function getFabMap(): Promise<FabMapResponse> {
+  return getJson<FabMapResponse>('/fab-map')
+}
+
+export async function blockFabEdge(edgeId: string, reason: string): Promise<unknown> {
+  return sendJson(`/fab-edges/${edgeId}/block`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function unblockFabEdge(edgeId: string): Promise<unknown> {
+  return sendJson(`/fab-edges/${edgeId}/unblock`, { method: 'POST' })
 }
 
 export async function getTransferRequests(
