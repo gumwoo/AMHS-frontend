@@ -1,46 +1,24 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle,
-  BarChart3,
-  Bell,
-  Blocks,
-  Ban,
-  CheckCircle2,
-  CircleGauge,
-  Clock3,
-  Play,
-  RefreshCw,
-  Route,
-  Send,
-  ShieldCheck,
-  Truck,
-  Wifi,
-  WifiOff,
-  X,
-  XCircle,
-} from 'lucide-react'
-import {
-  assignTransferRequest,
-  blockFabEdge,
-  cancelTransferRequest,
-  createTransferRequest,
   getAnalyticsSummary,
   getBottlenecks,
+  getDemoMonitoringStatus,
   getFabMap,
-  getOhtThroughput,
+  getOhts,
   getOperationsOverview,
   getTransferRequests,
   openMonitoringStream,
-  startTransferRequest,
-  unblockFabEdge,
-  type AnalyticsSummaryResponse,
+  startDemoMonitoring,
+  stopDemoMonitoring,
+  tickDemoMonitoring,
   type AlertSeverity,
+  type AnalyticsSummaryResponse,
   type BottleneckResponse,
-  type FabEdgeResponse,
+  type DemoMonitoringStatusResponse,
   type FabMapResponse,
   type FabNodeResponse,
   type MonitoringEvent,
-  type OhtThroughputResponse,
+  type OhtResponse,
   type OperationsOverviewResponse,
   type PageResponse,
   type TransferPriority,
@@ -48,8 +26,6 @@ import {
   type TransferStatus,
 } from './api'
 import './App.css'
-
-type ViewMode = 'dashboard' | 'transfers' | 'fab' | 'analytics'
 
 const emptyOverview: OperationsOverviewResponse = {
   counts: {
@@ -70,7 +46,7 @@ const emptyOverview: OperationsOverviewResponse = {
   blockedEdges: [],
 }
 
-const emptyTransferPage: PageResponse<TransferRequestResponse> = {
+const emptyTransfers: PageResponse<TransferRequestResponse> = {
   content: [],
   page: 0,
   size: 20,
@@ -80,15 +56,8 @@ const emptyTransferPage: PageResponse<TransferRequestResponse> = {
   last: true,
 }
 
-const transferStatuses: Array<TransferStatus | ''> = ['', 'WAITING', 'ASSIGNED', 'MOVING', 'COMPLETED', 'FAILED', 'CANCELED']
-const priorities: TransferPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT']
-
-const emptyFabMap: FabMapResponse = {
-  nodes: [],
-  edges: [],
-}
-
-const emptyAnalyticsSummary: AnalyticsSummaryResponse = {
+const emptyMap: FabMapResponse = { nodes: [], edges: [] }
+const emptyAnalytics: AnalyticsSummaryResponse = {
   totalRequests: 0,
   completedRequests: 0,
   failedRequests: 0,
@@ -100,988 +69,482 @@ const emptyAnalyticsSummary: AnalyticsSummaryResponse = {
   delayedRequests: 0,
 }
 
+const statusTabs: Array<{ label: string; value: TransferStatus | '' }> = [
+  { label: '전체', value: '' },
+  { label: '대기', value: 'WAITING' },
+  { label: '배정', value: 'ASSIGNED' },
+  { label: '이동', value: 'MOVING' },
+  { label: '완료', value: 'COMPLETED' },
+  { label: '실패', value: 'FAILED' },
+]
+
 function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('dashboard')
   const [overview, setOverview] = useState<OperationsOverviewResponse>(emptyOverview)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [events, setEvents] = useState<MonitoringEvent[]>([])
-  const [streamConnected, setStreamConnected] = useState(false)
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
-
-  const [transferPage, setTransferPage] = useState<PageResponse<TransferRequestResponse>>(emptyTransferPage)
-  const [transferLoading, setTransferLoading] = useState(false)
-  const [transferError, setTransferError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<TransferStatus | ''>('')
-  const [priorityFilter, setPriorityFilter] = useState<TransferPriority | ''>('')
-  const [createForm, setCreateForm] = useState({
-    sourceNodeId: '',
-    destinationNodeId: '',
-    priority: 'NORMAL' as TransferPriority,
-  })
-  const [ohtInputs, setOhtInputs] = useState<Record<number, string>>({})
-  const [workingRequestId, setWorkingRequestId] = useState<number | null>(null)
-  const [fabMap, setFabMap] = useState<FabMapResponse>(emptyFabMap)
-  const [fabError, setFabError] = useState<string | null>(null)
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
-  const [edgeReason, setEdgeReason] = useState('운영자 차단')
-  const [workingEdgeId, setWorkingEdgeId] = useState<string | null>(null)
-  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummaryResponse>(emptyAnalyticsSummary)
-  const [ohtThroughput, setOhtThroughput] = useState<OhtThroughputResponse[]>([])
+  const [transfers, setTransfers] = useState<PageResponse<TransferRequestResponse>>(emptyTransfers)
+  const [fabMap, setFabMap] = useState<FabMapResponse>(emptyMap)
+  const [ohts, setOhts] = useState<OhtResponse[]>([])
+  const [analytics, setAnalytics] = useState<AnalyticsSummaryResponse>(emptyAnalytics)
   const [bottlenecks, setBottlenecks] = useState<BottleneckResponse[]>([])
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
+  const [events, setEvents] = useState<MonitoringEvent[]>([])
+  const [demoStatus, setDemoStatus] = useState<DemoMonitoringStatusResponse | null>(null)
+  const [streamConnected, setStreamConnected] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<TransferStatus | ''>('')
+  const [selectedOhtId, setSelectedOhtId] = useState('OHT-01')
+  const [error, setError] = useState<string | null>(null)
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null)
+  const [workingDemo, setWorkingDemo] = useState(false)
 
-  const loadOverview = useCallback(async () => {
-    setLoading(true)
+  const loadControlRoom = useCallback(async () => {
     setError(null)
     try {
-      const data = await getOperationsOverview(10)
-      setOverview(data)
-      setLastUpdatedAt(new Date().toISOString())
-    } catch (exception) {
-      setError(exception instanceof Error ? exception.message : '운영 현황을 불러오지 못했습니다.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadTransfers = useCallback(async () => {
-    setTransferLoading(true)
-    setTransferError(null)
-    try {
-      const data = await getTransferRequests({
-        status: statusFilter,
-        priority: priorityFilter,
-        page: 0,
-        size: 20,
-      })
-      setTransferPage(data)
-    } catch (exception) {
-      setTransferError(exception instanceof Error ? exception.message : '반송 요청 목록을 불러오지 못했습니다.')
-    } finally {
-      setTransferLoading(false)
-    }
-  }, [priorityFilter, statusFilter])
-
-  const loadFabMap = useCallback(async () => {
-    setFabError(null)
-    try {
-      const data = await getFabMap()
-      setFabMap(data)
-      setSelectedEdgeId((current) => current ?? data.edges[0]?.edgeId ?? null)
-    } catch (exception) {
-      setFabError(exception instanceof Error ? exception.message : 'FAB 맵을 불러오지 못했습니다.')
-    }
-  }, [])
-
-  const loadAnalytics = useCallback(async () => {
-    setAnalyticsError(null)
-    try {
-      const [summary, throughput, bottleneckData] = await Promise.all([
-        getAnalyticsSummary(),
-        getOhtThroughput(),
-        getBottlenecks(10),
-      ])
-      setAnalyticsSummary(summary)
-      setOhtThroughput(throughput)
+      const [overviewData, transferData, mapData, ohtData, analyticsData, bottleneckData, demoData] =
+        await Promise.all([
+          getOperationsOverview(10),
+          getTransferRequests({ status: statusFilter, page: 0, size: 10 }),
+          getFabMap(),
+          getOhts(),
+          getAnalyticsSummary(),
+          getBottlenecks(5),
+          getDemoMonitoringStatus(),
+        ])
+      setOverview(overviewData)
+      setTransfers(transferData)
+      setFabMap(mapData)
+      setOhts(ohtData)
+      setAnalytics(analyticsData)
       setBottlenecks(bottleneckData)
+      setDemoStatus(demoData)
+      setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
+      setLastLoadedAt(new Date().toISOString())
     } catch (exception) {
-      setAnalyticsError(exception instanceof Error ? exception.message : '분석 지표를 불러오지 못했습니다.')
+      setError(exception instanceof Error ? exception.message : '관제 데이터를 불러오지 못했습니다.')
     }
-  }, [])
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([loadOverview(), loadTransfers(), loadFabMap(), loadAnalytics()])
-  }, [loadAnalytics, loadFabMap, loadOverview, loadTransfers])
+  }, [statusFilter])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
-      void refreshAll()
+      void loadControlRoom()
     }, 0)
     return () => window.clearTimeout(timerId)
-  }, [refreshAll])
+  }, [loadControlRoom])
 
   useEffect(() => {
     const source = openMonitoringStream((event) => {
-      setEvents((current) => [event, ...current].slice(0, 8))
-      if (
-        event.eventType.startsWith('TRANSFER_') ||
-        event.eventType === 'OHT_ASSIGNED' ||
-        event.eventType === 'EDGE_BLOCKED' ||
-        event.eventType === 'EDGE_UNBLOCKED'
-      ) {
-        void refreshAll()
+      setEvents((current) => [event, ...current].slice(0, 12))
+      if (typeof event.ohtId === 'string') {
+        setSelectedOhtId(event.ohtId)
       }
+      void loadControlRoom()
     })
 
     source.onopen = () => setStreamConnected(true)
     source.onerror = () => setStreamConnected(false)
 
     return () => source.close()
-  }, [refreshAll])
+  }, [loadControlRoom])
 
-  const activeTransfers = useMemo(
-    () =>
-      overview.counts.waitingTransfers +
-      overview.counts.assignedTransfers +
-      overview.counts.movingTransfers,
-    [overview],
+  const selectedOht = useMemo(
+    () => ohts.find((oht) => oht.ohtId === selectedOhtId) ?? ohts[0] ?? null,
+    [ohts, selectedOhtId],
   )
 
-  const criticalCount = overview.counts.failedTransfers + overview.counts.errorOhts + overview.counts.blockedEdges
+  const selectedTransfer = useMemo(
+    () =>
+      selectedOht?.currentRequestId
+        ? transfers.content.find((transfer) => transfer.requestId === selectedOht.currentRequestId) ?? null
+        : null,
+    [selectedOht, transfers.content],
+  )
 
-  async function handleCreateTransfer(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setTransferError(null)
-    try {
-      await createTransferRequest(createForm)
-      setCreateForm({ sourceNodeId: '', destinationNodeId: '', priority: 'NORMAL' })
-      await refreshAll()
-    } catch (exception) {
-      setTransferError(exception instanceof Error ? exception.message : '반송 요청 생성에 실패했습니다.')
-    }
-  }
-
-  async function runTransferAction(requestId: number, action: () => Promise<unknown>) {
-    setWorkingRequestId(requestId)
-    setTransferError(null)
+  async function runDemoAction(action: () => Promise<DemoMonitoringStatusResponse | unknown>) {
+    setWorkingDemo(true)
+    setError(null)
     try {
       await action()
-      await refreshAll()
+      const status = await getDemoMonitoringStatus()
+      setDemoStatus(status)
     } catch (exception) {
-      setTransferError(exception instanceof Error ? exception.message : '반송 요청 처리에 실패했습니다.')
+      setError(exception instanceof Error ? exception.message : '데모 모니터링 제어에 실패했습니다.')
     } finally {
-      setWorkingRequestId(null)
-    }
-  }
-
-  async function runEdgeAction(edgeId: string, action: () => Promise<unknown>) {
-    setWorkingEdgeId(edgeId)
-    setFabError(null)
-    try {
-      await action()
-      await refreshAll()
-    } catch (exception) {
-      setFabError(exception instanceof Error ? exception.message : 'FAB edge 처리에 실패했습니다.')
-    } finally {
-      setWorkingEdgeId(null)
+      setWorkingDemo(false)
     }
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">AMHS Operations</p>
-          <h1>운영 대시보드</h1>
-        </div>
-        <div className="topbar-actions">
-          <span className={`stream-state ${streamConnected ? 'online' : 'offline'}`}>
-            {streamConnected ? <Wifi size={16} /> : <WifiOff size={16} />}
-            {streamConnected ? 'SSE 연결됨' : 'SSE 대기'}
-          </span>
-          <button className="icon-button" type="button" onClick={() => void refreshAll()} aria-label="운영 현황 새로고침">
-            <RefreshCw size={18} />
+    <main className="control-shell">
+      <header className="control-topbar">
+        <div className="brand-block">
+          <button className="menu-button" type="button" aria-label="메뉴">
+            <span />
+            <span />
+            <span />
           </button>
+          <h1>AMHS/OHT 반송 관제</h1>
+        </div>
+        <div className="topbar-status">
+          <StatusText label="FAB" value="FAB-01" />
+          <StatusText label="시뮬레이션" value={demoStatus?.running ? '실행중' : '중지'} active={demoStatus?.running} />
+          <StatusText label="SSE" value={streamConnected ? '연결 정상' : '대기'} active={streamConnected} />
+          <StatusText label="이벤트" value={`${demoStatus?.emittedEvents ?? 0}건`} />
+          <StatusText label="마지막 수신" value={formatTime(events[0]?.occurredAt ?? demoStatus?.lastEventAt ?? lastLoadedAt)} />
         </div>
       </header>
 
-      <nav className="view-tabs" aria-label="운영 화면">
-        <button className={viewMode === 'dashboard' ? 'active' : ''} type="button" onClick={() => setViewMode('dashboard')}>
-          대시보드
-        </button>
-        <button className={viewMode === 'transfers' ? 'active' : ''} type="button" onClick={() => setViewMode('transfers')}>
-          반송 요청
-        </button>
-        <button className={viewMode === 'fab' ? 'active' : ''} type="button" onClick={() => setViewMode('fab')}>
-          FAB 맵
-        </button>
-        <button className={viewMode === 'analytics' ? 'active' : ''} type="button" onClick={() => setViewMode('analytics')}>
-          분석
-        </button>
-      </nav>
+      {error && <div className="system-message">{error}</div>}
 
-      <section className="status-strip" aria-label="운영 요약">
-        <Metric icon={<Truck size={20} />} label="진행 반송" value={activeTransfers} tone="neutral" />
-        <Metric icon={<Clock3 size={20} />} label="대기" value={overview.counts.waitingTransfers} tone="neutral" />
-        <Metric icon={<CircleGauge size={20} />} label="이동 중 OHT" value={overview.counts.movingOhts} tone="good" />
-        <Metric icon={<AlertTriangle size={20} />} label="운영 이슈" value={criticalCount} tone="danger" />
+      <section className="control-grid">
+        <section className="pane queue-pane">
+          <PaneHeader title="반송작업 현황" right={`${transfers.totalElements}건`} />
+          <div className="status-tabs">
+            {statusTabs.map((tab) => (
+              <button
+                className={statusFilter === tab.value ? 'active' : ''}
+                key={tab.label}
+                type="button"
+                onClick={() => setStatusFilter(tab.value)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <TransferTable rows={transfers.content} />
+        </section>
+
+        <section className="pane map-pane">
+          <PaneHeader
+            title="FAB 반송 지도"
+            right={
+              <div className="demo-actions">
+                <button disabled={workingDemo || demoStatus?.running} type="button" onClick={() => runDemoAction(startDemoMonitoring)}>
+                  실행
+                </button>
+                <button disabled={workingDemo || !demoStatus?.running} type="button" onClick={() => runDemoAction(stopDemoMonitoring)}>
+                  정지
+                </button>
+                <button disabled={workingDemo} type="button" onClick={() => runDemoAction(tickDemoMonitoring)}>
+                  1회 발생
+                </button>
+              </div>
+            }
+          />
+          <FabMapCanvas events={events} map={fabMap} ohts={ohts} selectedOhtId={selectedOht?.ohtId ?? null} onSelectOht={setSelectedOhtId} />
+        </section>
+
+        <aside className="side-stack">
+          <section className="pane oht-pane">
+            <PaneHeader title="OHT 장비 상태" right={selectedOht?.ohtId ?? '-'} />
+            <OhtDetail oht={selectedOht} transfer={selectedTransfer} />
+            <OhtTable ohts={ohts} selectedOhtId={selectedOht?.ohtId ?? null} onSelect={setSelectedOhtId} />
+          </section>
+
+          <section className="pane event-pane">
+            <PaneHeader title="실시간 이벤트" right={streamConnected ? 'LIVE' : 'OFF'} />
+            <EventLog events={events} />
+          </section>
+        </aside>
       </section>
 
-      {error && (
-        <section className="notice" role="alert">
-          <XCircle size={18} />
-          <span>{error}</span>
+      <section className="bottom-grid">
+        <section className="pane metrics-pane">
+          <PaneHeader title="운영 지표" right="Today" />
+          <div className="metric-strip">
+            <Metric label="전체" value={`${analytics.totalRequests.toLocaleString()}건`} />
+            <Metric label="완료율" value={formatPercent(analytics.completionRate)} tone="good" />
+            <Metric label="평균 반송" value={`${analytics.averageTransferSeconds.toFixed(1)}초`} />
+            <Metric label="P95 반송" value={`${analytics.p95TransferSeconds.toFixed(1)}초`} tone="warn" />
+            <Metric label="지연" value={`${analytics.delayedRequests.toLocaleString()}건`} tone="warn" />
+            <Metric label="실패" value={`${overview.counts.failedTransfers.toLocaleString()}건`} tone="bad" />
+          </div>
         </section>
-      )}
 
-      {viewMode === 'dashboard' ? (
-        <DashboardView
-          events={events}
-          loading={loading}
-          lastUpdatedAt={lastUpdatedAt}
-          overview={overview}
-        />
-      ) : viewMode === 'transfers' ? (
-        <TransferView
-          createForm={createForm}
-          ohtInputs={ohtInputs}
-          page={transferPage}
-          priorityFilter={priorityFilter}
-          statusFilter={statusFilter}
-          transferError={transferError}
-          transferLoading={transferLoading}
-          workingRequestId={workingRequestId}
-          onAssign={(requestId) =>
-            runTransferAction(requestId, () => assignTransferRequest(requestId, ohtInputs[requestId]))
-          }
-          onCancel={(requestId) =>
-            runTransferAction(requestId, () => cancelTransferRequest(requestId, '운영자 취소'))
-          }
-          onCreate={handleCreateTransfer}
-          onOhtInputChange={(requestId, value) => setOhtInputs((current) => ({ ...current, [requestId]: value }))}
-          onPriorityFilterChange={setPriorityFilter}
-          onRefresh={loadTransfers}
-          onStart={(requestId) => runTransferAction(requestId, () => startTransferRequest(requestId))}
-          onStatusFilterChange={setStatusFilter}
-          onUpdateCreateForm={setCreateForm}
-        />
-      ) : (
-      viewMode === 'fab' ? (
-        <FabMapView
-          edgeReason={edgeReason}
-          error={fabError}
-          fabMap={fabMap}
-          selectedEdgeId={selectedEdgeId}
-          workingEdgeId={workingEdgeId}
-          onBlockEdge={(edgeId) => runEdgeAction(edgeId, () => blockFabEdge(edgeId, edgeReason))}
-          onRefresh={loadFabMap}
-          onSelectEdge={setSelectedEdgeId}
-          onSetReason={setEdgeReason}
-          onUnblockEdge={(edgeId) => runEdgeAction(edgeId, () => unblockFabEdge(edgeId))}
-        />
-      ) : (
-        <AnalyticsView
-          bottlenecks={bottlenecks}
-          error={analyticsError}
-          ohtThroughput={ohtThroughput}
-          summary={analyticsSummary}
-          onRefresh={loadAnalytics}
-        />
-      )
-      )}
+        <section className="pane bottleneck-pane">
+          <PaneHeader title="병목 구간" right={`${overview.counts.blockedEdges} blocked`} />
+          <BottleneckTable rows={bottlenecks} />
+        </section>
+      </section>
     </main>
   )
 }
 
-function DashboardView({
-  events,
-  loading,
-  lastUpdatedAt,
-  overview,
-}: {
-  events: MonitoringEvent[]
-  loading: boolean
-  lastUpdatedAt: string | null
-  overview: OperationsOverviewResponse
-}) {
+function PaneHeader({ title, right }: { title: string; right?: React.ReactNode }) {
   return (
-    <section className="dashboard-grid">
-      <Panel title="반송 상태" action={loading ? '갱신 중' : formatTime(lastUpdatedAt)}>
-        <div className="state-grid">
-          <StateCell label="WAITING" value={overview.counts.waitingTransfers} />
-          <StateCell label="ASSIGNED" value={overview.counts.assignedTransfers} />
-          <StateCell label="MOVING" value={overview.counts.movingTransfers} />
-          <StateCell label="COMPLETED" value={overview.counts.completedTransfers} />
-          <StateCell label="FAILED" value={overview.counts.failedTransfers} danger />
-          <StateCell label="CANCELED" value={overview.counts.canceledTransfers} />
-        </div>
-      </Panel>
-
-      <Panel title="OHT 상태">
-        <div className="state-grid compact">
-          <StateCell label="IDLE" value={overview.counts.idleOhts} />
-          <StateCell label="RESERVED" value={overview.counts.reservedOhts} />
-          <StateCell label="MOVING" value={overview.counts.movingOhts} />
-          <StateCell label="ERROR" value={overview.counts.errorOhts} danger />
-        </div>
-        <IssueList
-          emptyText="오류 상태 OHT 없음"
-          items={overview.abnormalOhts.map((oht) => ({
-            key: oht.ohtId,
-            title: oht.ohtId,
-            meta: `${oht.status} · ${oht.currentNodeId}`,
-            badge: oht.currentRequestId ? `REQ-${oht.currentRequestId}` : '대기',
-          }))}
-        />
-      </Panel>
-
-      <Panel title="차단 경로" action={`${overview.counts.blockedEdges}건`}>
-        <IssueList
-          emptyText="차단된 경로 없음"
-          items={overview.blockedEdges.map((edge) => ({
-            key: edge.edgeId,
-            title: edge.edgeId,
-            meta: `${edge.fromNodeId} → ${edge.toNodeId}`,
-            badge: `${edge.estimatedTravelSeconds}s`,
-          }))}
-          icon={<Route size={17} />}
-        />
-      </Panel>
-
-      <Panel title="최근 문제 반송">
-        <IssueList
-          emptyText="최근 실패/취소 반송 없음"
-          items={overview.recentProblemTransfers.map((transfer) => ({
-            key: `${transfer.requestId}-${transfer.completedAt}`,
-            title: `REQ-${transfer.requestId}`,
-            meta: `${transfer.sourceNodeId} → ${transfer.destinationNodeId}`,
-            badge: transfer.status,
-            detail: transfer.reason ?? '-',
-          }))}
-          icon={<Blocks size={17} />}
-        />
-      </Panel>
-
-      <Panel title="실시간 알림" action={<Bell size={17} />}>
-        <div className="event-list">
-          {events.length === 0 ? (
-            <EmptyLine text="수신된 알림 없음" />
-          ) : (
-            events.map((event) => (
-              <article className={`event-row ${severityClass(event.alertSeverity)}`} key={event.eventId}>
-                <span className="event-dot" />
-                <div>
-                  <strong>{event.alertTitle ?? event.eventType}</strong>
-                  <p>{event.alertMessage ?? '이벤트가 발생했습니다.'}</p>
-                </div>
-                <time>{formatTime(event.occurredAt)}</time>
-              </article>
-            ))
-          )}
-        </div>
-      </Panel>
-    </section>
+    <header className="pane-header">
+      <h2>{title}</h2>
+      {right && <div className="pane-action">{right}</div>}
+    </header>
   )
 }
 
-function TransferView({
-  createForm,
-  ohtInputs,
-  page,
-  priorityFilter,
-  statusFilter,
-  transferError,
-  transferLoading,
-  workingRequestId,
-  onAssign,
-  onCancel,
-  onCreate,
-  onOhtInputChange,
-  onPriorityFilterChange,
-  onRefresh,
-  onStart,
-  onStatusFilterChange,
-  onUpdateCreateForm,
-}: {
-  createForm: { sourceNodeId: string; destinationNodeId: string; priority: TransferPriority }
-  ohtInputs: Record<number, string>
-  page: PageResponse<TransferRequestResponse>
-  priorityFilter: TransferPriority | ''
-  statusFilter: TransferStatus | ''
-  transferError: string | null
-  transferLoading: boolean
-  workingRequestId: number | null
-  onAssign: (requestId: number) => void
-  onCancel: (requestId: number) => void
-  onCreate: (event: FormEvent<HTMLFormElement>) => void
-  onOhtInputChange: (requestId: number, value: string) => void
-  onPriorityFilterChange: (priority: TransferPriority | '') => void
-  onRefresh: () => void
-  onStart: (requestId: number) => void
-  onStatusFilterChange: (status: TransferStatus | '') => void
-  onUpdateCreateForm: (form: { sourceNodeId: string; destinationNodeId: string; priority: TransferPriority }) => void
-}) {
+function StatusText({ label, value, active = false }: { label: string; value: string; active?: boolean }) {
   return (
-    <section className="transfer-layout">
-      <Panel title="반송 요청 생성">
-        <form className="transfer-form" onSubmit={onCreate}>
-          <label>
-            출발 노드
-            <input
-              required
-              placeholder="STOCKER-A"
-              value={createForm.sourceNodeId}
-              onChange={(event) => onUpdateCreateForm({ ...createForm, sourceNodeId: event.target.value })}
-            />
-          </label>
-          <label>
-            도착 노드
-            <input
-              required
-              placeholder="EQP-01"
-              value={createForm.destinationNodeId}
-              onChange={(event) => onUpdateCreateForm({ ...createForm, destinationNodeId: event.target.value })}
-            />
-          </label>
-          <label>
-            우선순위
-            <select
-              value={createForm.priority}
-              onChange={(event) =>
-                onUpdateCreateForm({ ...createForm, priority: event.target.value as TransferPriority })
-              }
-            >
-              {priorities.map((priority) => (
-                <option key={priority} value={priority}>
-                  {priority}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="primary-button" type="submit">
-            <Send size={16} />
-            요청 생성
-          </button>
-        </form>
-      </Panel>
-
-      <Panel title="반송 요청 목록" action={`${page.totalElements.toLocaleString()}건`}>
-        <div className="filter-bar">
-          <select value={statusFilter} onChange={(event) => onStatusFilterChange(event.target.value as TransferStatus | '')}>
-            {transferStatuses.map((status) => (
-              <option key={status || 'ALL'} value={status}>
-                {status || '전체 상태'}
-              </option>
-            ))}
-          </select>
-          <select
-            value={priorityFilter}
-            onChange={(event) => onPriorityFilterChange(event.target.value as TransferPriority | '')}
-          >
-            <option value="">전체 우선순위</option>
-            {priorities.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-          <button className="secondary-button" type="button" onClick={onRefresh}>
-            <RefreshCw size={16} />
-            조회
-          </button>
-        </div>
-
-        {transferError && (
-          <div className="inline-error">
-            <XCircle size={16} />
-            <span>{transferError}</span>
-          </div>
-        )}
-
-        <div className="transfer-table-wrap">
-          <table className="transfer-table">
-            <thead>
-              <tr>
-                <th>요청</th>
-                <th>경로</th>
-                <th>상태</th>
-                <th>우선순위</th>
-                <th>OHT</th>
-                <th>요청 시각</th>
-                <th>작업</th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.content.length === 0 ? (
-                <tr>
-                  <td colSpan={7}>
-                    <EmptyLine text={transferLoading ? '반송 요청 조회 중' : '반송 요청 없음'} />
-                  </td>
-                </tr>
-              ) : (
-                page.content.map((transfer) => (
-                  <tr key={transfer.requestId}>
-                    <td>REQ-{transfer.requestId}</td>
-                    <td>
-                      <strong>{transfer.sourceNodeId}</strong>
-                      <span> → {transfer.destinationNodeId}</span>
-                    </td>
-                    <td>
-                      <StatusPill status={transfer.status} />
-                    </td>
-                    <td>{transfer.priority}</td>
-                    <td>
-                      {transfer.status === 'WAITING' ? (
-                        <input
-                          className="oht-input"
-                          placeholder="자동"
-                          value={ohtInputs[transfer.requestId] ?? ''}
-                          onChange={(event) => onOhtInputChange(transfer.requestId, event.target.value)}
-                        />
-                      ) : (
-                        transfer.assignedOhtId ?? '-'
-                      )}
-                    </td>
-                    <td>{formatTime(transfer.requestedAt)}</td>
-                    <td>
-                      <div className="row-actions">
-                        {transfer.status === 'WAITING' && (
-                          <button
-                            className="icon-button small"
-                            disabled={workingRequestId === transfer.requestId}
-                            type="button"
-                            onClick={() => onAssign(transfer.requestId)}
-                            aria-label={`REQ-${transfer.requestId} 배정`}
-                          >
-                            <Truck size={15} />
-                          </button>
-                        )}
-                        {transfer.status === 'ASSIGNED' && (
-                          <button
-                            className="icon-button small"
-                            disabled={workingRequestId === transfer.requestId}
-                            type="button"
-                            onClick={() => onStart(transfer.requestId)}
-                            aria-label={`REQ-${transfer.requestId} 시작`}
-                          >
-                            <Play size={15} />
-                          </button>
-                        )}
-                        {(transfer.status === 'WAITING' || transfer.status === 'ASSIGNED') && (
-                          <button
-                            className="icon-button small danger"
-                            disabled={workingRequestId === transfer.requestId}
-                            type="button"
-                            onClick={() => onCancel(transfer.requestId)}
-                            aria-label={`REQ-${transfer.requestId} 취소`}
-                          >
-                            <X size={15} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-    </section>
+    <span className="status-text">
+      <em>{label}</em>
+      <strong className={active ? 'active' : ''}>{value}</strong>
+    </span>
   )
 }
 
-function FabMapView({
-  edgeReason,
-  error,
-  fabMap,
-  selectedEdgeId,
-  workingEdgeId,
-  onBlockEdge,
-  onRefresh,
-  onSelectEdge,
-  onSetReason,
-  onUnblockEdge,
-}: {
-  edgeReason: string
-  error: string | null
-  fabMap: FabMapResponse
-  selectedEdgeId: string | null
-  workingEdgeId: string | null
-  onBlockEdge: (edgeId: string) => void
-  onRefresh: () => void
-  onSelectEdge: (edgeId: string) => void
-  onSetReason: (reason: string) => void
-  onUnblockEdge: (edgeId: string) => void
-}) {
-  const selectedEdge = fabMap.edges.find((edge) => edge.edgeId === selectedEdgeId) ?? fabMap.edges[0] ?? null
-  const nodeById = new Map(fabMap.nodes.map((node) => [node.nodeId, node]))
-  const blockedEdges = fabMap.edges.filter((edge) => edge.blocked)
-  const activeNodes = fabMap.nodes.filter((node) => node.active).length
+function TransferTable({ rows }: { rows: TransferRequestResponse[] }) {
+  if (rows.length === 0) {
+    return <div className="empty-state">조회된 반송 작업이 없습니다.</div>
+  }
 
   return (
-    <section className="fab-layout">
-      <Panel title="FAB Map" action={`${fabMap.nodes.length} nodes · ${fabMap.edges.length} edges`}>
-        {error && (
-          <div className="inline-error">
-            <XCircle size={16} />
-            <span>{error}</span>
-          </div>
-        )}
-        <FabMapCanvas
-          edges={fabMap.edges}
-          nodes={fabMap.nodes}
-          selectedEdgeId={selectedEdge?.edgeId ?? null}
-          onSelectEdge={onSelectEdge}
-        />
-      </Panel>
-
-      <aside className="fab-side">
-        <Panel title="FAB 상태" action={<Route size={17} />}>
-          <div className="state-grid compact">
-            <StateCell label="ACTIVE NODE" value={activeNodes} />
-            <StateCell label="EDGE" value={fabMap.edges.length} />
-            <StateCell label="BLOCKED" value={blockedEdges.length} danger />
-            <StateCell label="NORMAL" value={fabMap.edges.length - blockedEdges.length} />
-          </div>
-        </Panel>
-
-        <Panel title="Edge 제어">
-          {selectedEdge ? (
-            <div className="edge-control">
-              <div className="edge-summary">
-                <strong>{selectedEdge.edgeId}</strong>
-                <span>
-                  {selectedEdge.fromNodeId} → {selectedEdge.toNodeId}
-                </span>
-                <StatusBadge active={!selectedEdge.blocked} />
-              </div>
-              <label>
-                차단 사유
-                <input value={edgeReason} onChange={(event) => onSetReason(event.target.value)} />
-              </label>
-              <div className="edge-actions">
-                <button
-                  className="secondary-button danger-text"
-                  disabled={selectedEdge.blocked || workingEdgeId === selectedEdge.edgeId}
-                  type="button"
-                  onClick={() => onBlockEdge(selectedEdge.edgeId)}
-                >
-                  <Ban size={16} />
-                  차단
-                </button>
-                <button
-                  className="secondary-button"
-                  disabled={!selectedEdge.blocked || workingEdgeId === selectedEdge.edgeId}
-                  type="button"
-                  onClick={() => onUnblockEdge(selectedEdge.edgeId)}
-                >
-                  <ShieldCheck size={16} />
-                  해제
-                </button>
-                <button className="icon-button" type="button" onClick={onRefresh} aria-label="FAB 맵 새로고침">
-                  <RefreshCw size={17} />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <EmptyLine text="선택된 edge 없음" />
-          )}
-        </Panel>
-
-        <Panel title="Edge 목록" action={`${blockedEdges.length} blocked`}>
-          <div className="edge-list">
-            {fabMap.edges.length === 0 ? (
-              <EmptyLine text="FAB edge 없음" />
-            ) : (
-              fabMap.edges.map((edge) => {
-                const fromNode = nodeById.get(edge.fromNodeId)
-                const toNode = nodeById.get(edge.toNodeId)
-                return (
-                  <button
-                    className={`edge-list-row ${edge.edgeId === selectedEdge?.edgeId ? 'selected' : ''}`}
-                    key={edge.edgeId}
-                    type="button"
-                    onClick={() => onSelectEdge(edge.edgeId)}
-                  >
-                    <span className={edge.blocked ? 'edge-led blocked' : 'edge-led'} />
-                    <strong>{edge.edgeId}</strong>
-                    <span>
-                      {fromNode?.name ?? edge.fromNodeId} → {toNode?.name ?? edge.toNodeId}
-                    </span>
-                    <small>{edge.estimatedTravelSeconds}s</small>
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </Panel>
-      </aside>
-    </section>
-  )
-}
-
-function AnalyticsView({
-  bottlenecks,
-  error,
-  ohtThroughput,
-  summary,
-  onRefresh,
-}: {
-  bottlenecks: BottleneckResponse[]
-  error: string | null
-  ohtThroughput: OhtThroughputResponse[]
-  summary: AnalyticsSummaryResponse
-  onRefresh: () => void
-}) {
-  return (
-    <section className="analytics-layout">
-      {error && (
-        <div className="inline-error analytics-error">
-          <XCircle size={16} />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <div className="analytics-summary">
-        <AnalyticsMetric label="총 요청" value={summary.totalRequests.toLocaleString()} sub={`${summary.completedRequests} completed`} />
-        <AnalyticsMetric label="완료율" value={formatPercent(summary.completionRate)} sub={`${summary.failedRequests} failed`} tone="good" />
-        <AnalyticsMetric label="평균 반송" value={`${summary.averageTransferSeconds.toFixed(1)}s`} sub="requested → completed" />
-        <AnalyticsMetric label="P95 반송" value={`${summary.p95TransferSeconds}s`} sub="상위 지연 기준" tone="warning" />
-        <AnalyticsMetric label="지연 요청" value={summary.delayedRequests.toLocaleString()} sub={`${summary.canceledRequests} canceled`} tone="danger" />
-      </div>
-
-      <Panel title="OHT 처리량" action={<BarChart3 size={17} />}>
-        <div className="throughput-list">
-          {ohtThroughput.length === 0 ? (
-            <EmptyLine text="OHT 처리량 데이터 없음" />
-          ) : (
-            ohtThroughput.map((row) => (
-              <article className="throughput-row" key={row.ohtId}>
-                <strong>{row.ohtId}</strong>
-                <span>완료 {row.completedRequests}</span>
-                <span>실패 {row.failedRequests}</span>
-                <div className="bar-track">
-                  <div
-                    className="bar-fill"
-                    style={{
-                      width: `${Math.min(100, Math.max(8, row.completedRequests * 20))}%`,
-                    }}
-                  />
-                </div>
-                <small>{row.averageTransferSeconds.toFixed(1)}s avg</small>
-              </article>
-            ))
-          )}
-        </div>
-      </Panel>
-
-      <Panel title="병목 Edge" action={<button className="text-action" type="button" onClick={onRefresh}>새로고침</button>}>
-        <div className="bottleneck-table-wrap">
-          <table className="transfer-table bottleneck-table">
-            <thead>
-              <tr>
-                <th>Edge</th>
-                <th>구간</th>
-                <th>통과</th>
-                <th>평균</th>
-                <th>P95</th>
-                <th>지연</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bottlenecks.length === 0 ? (
-                <tr>
-                  <td colSpan={6}>
-                    <EmptyLine text="병목 데이터 없음" />
-                  </td>
-                </tr>
-              ) : (
-                bottlenecks.map((edge) => (
-                  <tr key={`${edge.edgeId}-${edge.fromNodeId}-${edge.toNodeId}`}>
-                    <td>{edge.edgeId}</td>
-                    <td>
-                      {edge.fromNodeId} → {edge.toNodeId}
-                    </td>
-                    <td>{edge.passCount}</td>
-                    <td>{edge.averageTravelSeconds.toFixed(1)}s</td>
-                    <td>{edge.p95TravelSeconds}s</td>
-                    <td>{edge.delayedCount}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-    </section>
-  )
-}
-
-function AnalyticsMetric({
-  label,
-  sub,
-  value,
-  tone = 'neutral',
-}: {
-  label: string
-  sub: string
-  value: string
-  tone?: 'neutral' | 'good' | 'warning' | 'danger'
-}) {
-  return (
-    <article className={`analytics-metric ${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{sub}</small>
-    </article>
+    <div className="table-wrap">
+      <table className="ops-table">
+        <thead>
+          <tr>
+            <th>작업ID</th>
+            <th>출발</th>
+            <th>도착</th>
+            <th>우선순위</th>
+            <th>상태</th>
+            <th>OHT</th>
+            <th>경과</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.requestId}>
+              <td>#{row.requestId}</td>
+              <td>{row.sourceNodeId}</td>
+              <td>{row.destinationNodeId}</td>
+              <td>
+                <PriorityBadge priority={row.priority} />
+              </td>
+              <td>
+                <StatusBadge status={row.status} />
+              </td>
+              <td>{row.assignedOhtId ?? '-'}</td>
+              <td>{formatElapsed(row.requestedAt, row.completedAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
 function FabMapCanvas({
-  edges,
-  nodes,
-  selectedEdgeId,
-  onSelectEdge,
+  events,
+  map,
+  ohts,
+  selectedOhtId,
+  onSelectOht,
 }: {
-  edges: FabEdgeResponse[]
-  nodes: FabNodeResponse[]
-  selectedEdgeId: string | null
-  onSelectEdge: (edgeId: string) => void
+  events: MonitoringEvent[]
+  map: FabMapResponse
+  ohts: OhtResponse[]
+  selectedOhtId: string | null
+  onSelectOht: (ohtId: string) => void
 }) {
-  const nodeById = new Map(nodes.map((node) => [node.nodeId, node]))
-  const bounds = getMapBounds(nodes)
+  const nodeById = new Map(map.nodes.map((node) => [node.nodeId, node]))
+  const bounds = getMapBounds(map.nodes)
+  const activeEdge = events.find((event) => typeof event.fromNodeId === 'string' && typeof event.toNodeId === 'string')
 
-  if (nodes.length === 0) {
-    return <EmptyLine text="FAB 맵 데이터 없음" />
+  if (map.nodes.length === 0) {
+    return <div className="empty-state map-empty">FAB 지도를 불러오는 중입니다.</div>
   }
 
   return (
-    <div className="fab-canvas">
-      <svg aria-label="FAB map" role="img" viewBox="0 0 1000 560">
+    <div className="fab-map">
+      <svg viewBox="0 0 1040 610" role="img" aria-label="FAB 반송 지도">
         <defs>
-          <pattern id="fab-grid" width="32" height="32" patternUnits="userSpaceOnUse">
-            <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#1d3347" strokeWidth="1" />
+          <pattern id="fab-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+            <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#18334a" strokeWidth="1" />
           </pattern>
-          <filter id="route-glow" x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
-        <rect className="fab-grid-bg" width="1000" height="560" />
-        {edges.map((edge) => {
-          const fromNode = nodeById.get(edge.fromNodeId)
-          const toNode = nodeById.get(edge.toNodeId)
-          if (!fromNode || !toNode) {
-            return null
-          }
-          const from = toSvgPoint(fromNode, bounds)
-          const to = toSvgPoint(toNode, bounds)
+        <rect className="map-bg" width="1040" height="610" />
+        {map.edges.map((edge) => {
+          const from = nodeById.get(edge.fromNodeId)
+          const to = nodeById.get(edge.toNodeId)
+          if (!from || !to) return null
+          const fromPoint = toSvgPoint(from, bounds)
+          const toPoint = toSvgPoint(to, bounds)
+          const moving =
+            activeEdge?.fromNodeId === edge.fromNodeId && activeEdge?.toNodeId === edge.toNodeId
           return (
-            <g className="map-edge-hit" key={edge.edgeId} onClick={() => onSelectEdge(edge.edgeId)}>
-              <line className="map-edge-hit-line" x1={from.x} x2={to.x} y1={from.y} y2={to.y} />
+            <g key={edge.edgeId}>
               <line
-                className={`map-edge ${edge.blocked ? 'blocked' : ''} ${edge.edgeId === selectedEdgeId ? 'selected' : ''}`}
-                x1={from.x}
-                x2={to.x}
-                y1={from.y}
-                y2={to.y}
+                className={`track-line ${edge.blocked ? 'blocked' : ''} ${moving ? 'moving' : ''}`}
+                x1={fromPoint.x}
+                x2={toPoint.x}
+                y1={fromPoint.y}
+                y2={toPoint.y}
               />
-              <text className="edge-label" x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 8}>
-                {edge.edgeId}
-              </text>
+              {(edge.blocked || moving) && (
+                <text className={edge.blocked ? 'edge-flag blocked' : 'edge-flag moving'} x={(fromPoint.x + toPoint.x) / 2} y={(fromPoint.y + toPoint.y) / 2 - 9}>
+                  {edge.blocked ? '차단' : '이동'}
+                </text>
+              )}
             </g>
           )
         })}
-        {nodes.map((node) => {
+        {map.nodes.map((node) => {
           const point = toSvgPoint(node, bounds)
           return (
-            <g className={`map-node ${node.nodeType.toLowerCase()} ${node.active ? '' : 'inactive'}`} key={node.nodeId}>
-              <circle cx={point.x} cy={point.y} r="8" />
-              <rect height="28" rx="5" width="112" x={point.x - 56} y={point.y - 48} />
-              <text x={point.x} y={point.y - 30}>
-                {node.nodeId}
-              </text>
+            <g className={`node node-${node.nodeType.toLowerCase()}`} key={node.nodeId}>
+              <circle cx={point.x} cy={point.y} r="7" />
+              <rect x={point.x - 54} y={point.y - 41} width="108" height="28" rx="4" />
+              <text x={point.x} y={point.y - 23}>{node.nodeId}</text>
+            </g>
+          )
+        })}
+        {ohts.map((oht, index) => {
+          const node = nodeById.get(oht.currentNodeId) ?? map.nodes[index % map.nodes.length]
+          if (!node) return null
+          const point = toSvgPoint(node, bounds)
+          const offset = (index % 3) * 16 - 16
+          return (
+            <g
+              className={`oht-marker ${oht.status.toLowerCase()} ${selectedOhtId === oht.ohtId ? 'selected' : ''}`}
+              key={oht.ohtId}
+              onClick={() => onSelectOht(oht.ohtId)}
+            >
+              <rect x={point.x - 31 + offset} y={point.y + 13} width="62" height="26" rx="6" />
+              <circle cx={point.x - 18 + offset} cy={point.y + 40} r="3" />
+              <circle cx={point.x + 18 + offset} cy={point.y + 40} r="3" />
+              <text x={point.x + offset} y={point.y + 30}>{oht.ohtId}</text>
             </g>
           )
         })}
       </svg>
-    </div>
-  )
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: ReactNode
-  label: string
-  value: number
-  tone: 'neutral' | 'good' | 'danger'
-}) {
-  return (
-    <article className={`metric ${tone}`}>
-      <div className="metric-icon">{icon}</div>
-      <div>
-        <span>{label}</span>
-        <strong>{value.toLocaleString()}</strong>
+      <div className="map-legend">
+        <span><i className="blue" />이동 경로</span>
+        <span><i className="orange" />병목 구간</span>
+        <span><i className="red" />차단 구간</span>
+        <span><i className="gray" />레일</span>
       </div>
-    </article>
-  )
-}
-
-function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="panel">
-      <header className="panel-header">
-        <h2>{title}</h2>
-        {action && <span>{action}</span>}
-      </header>
-      {children}
-    </section>
-  )
-}
-
-function StateCell({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
-  return (
-    <div className={`state-cell ${danger ? 'danger' : ''}`}>
-      <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
     </div>
   )
 }
 
-function StatusPill({ status }: { status: TransferStatus }) {
-  return <span className={`status-pill ${status.toLowerCase()}`}>{status}</span>
+function OhtDetail({ oht, transfer }: { oht: OhtResponse | null; transfer: TransferRequestResponse | null }) {
+  if (!oht) return <div className="empty-state compact">OHT 정보가 없습니다.</div>
+
+  return (
+    <div className="oht-detail">
+      <div>
+        <strong>{oht.ohtId}</strong>
+        <StatusBadge status={oht.status} />
+      </div>
+      <dl>
+        <dt>현재 위치</dt>
+        <dd>{oht.currentNodeId}</dd>
+        <dt>작업</dt>
+        <dd>{oht.currentRequestId ? `#${oht.currentRequestId}` : '-'}</dd>
+        <dt>적재 FOUP</dt>
+        <dd>{oht.carryingFoupId ?? '-'}</dd>
+        <dt>도착지</dt>
+        <dd>{transfer?.destinationNodeId ?? '-'}</dd>
+        <dt>마지막 이동</dt>
+        <dd>{formatTime(oht.lastMovedAt)}</dd>
+      </dl>
+    </div>
+  )
 }
 
-function StatusBadge({ active }: { active: boolean }) {
-  return <span className={active ? 'status-badge normal' : 'status-badge blocked'}>{active ? 'NORMAL' : 'BLOCKED'}</span>
+function OhtTable({ ohts, selectedOhtId, onSelect }: { ohts: OhtResponse[]; selectedOhtId: string | null; onSelect: (ohtId: string) => void }) {
+  return (
+    <table className="oht-table">
+      <tbody>
+        {ohts.map((oht) => (
+          <tr className={selectedOhtId === oht.ohtId ? 'selected' : ''} key={oht.ohtId} onClick={() => onSelect(oht.ohtId)}>
+            <td><span className={`dot ${oht.status.toLowerCase()}`} /></td>
+            <td>{oht.ohtId}</td>
+            <td><StatusBadge status={oht.status} /></td>
+            <td>{oht.currentNodeId}</td>
+            <td>{oht.currentRequestId ? `#${oht.currentRequestId}` : '-'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }
 
-function IssueList({
-  items,
-  emptyText,
-  icon = <AlertTriangle size={17} />,
-}: {
-  items: Array<{ key: string; title: string; meta: string; badge: string; detail?: string }>
-  emptyText: string
-  icon?: ReactNode
-}) {
-  if (items.length === 0) {
-    return <EmptyLine text={emptyText} />
+function EventLog({ events }: { events: MonitoringEvent[] }) {
+  if (events.length === 0) {
+    return <div className="empty-state compact">수신된 이벤트가 없습니다.</div>
   }
 
   return (
-    <div className="issue-list">
-      {items.map((item) => (
-        <article className="issue-row" key={item.key}>
-          <div className="issue-icon">{icon}</div>
-          <div>
-            <strong>{item.title}</strong>
-            <p>{item.meta}</p>
-            {item.detail && <small>{item.detail}</small>}
-          </div>
-          <span className="badge">{item.badge}</span>
+    <div className="event-log">
+      {events.map((event) => (
+        <article className={`event-row ${severityClass(event.alertSeverity)}`} key={event.eventId}>
+          <time>{formatTime(event.occurredAt)}</time>
+          <strong>{event.eventType}</strong>
+          <span>{event.alertMessage ?? event.alertTitle ?? '-'}</span>
         </article>
       ))}
     </div>
   )
 }
 
-function EmptyLine({ text }: { text: string }) {
+function Metric({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'good' | 'warn' | 'bad' }) {
   return (
-    <div className="empty-line">
-      <CheckCircle2 size={17} />
-      <span>{text}</span>
+    <div className={`metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   )
+}
+
+function BottleneckTable({ rows }: { rows: BottleneckResponse[] }) {
+  if (rows.length === 0) {
+    return <div className="empty-state compact">병목 데이터가 없습니다.</div>
+  }
+
+  return (
+    <table className="ops-table bottleneck-table">
+      <thead>
+        <tr>
+          <th>순위</th>
+          <th>구간</th>
+          <th>평균</th>
+          <th>P95</th>
+          <th>지연</th>
+          <th>상태</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, index) => (
+          <tr key={`${row.edgeId}-${row.fromNodeId}-${row.toNodeId}`}>
+            <td>{index + 1}</td>
+            <td>{row.fromNodeId} → {row.toNodeId}</td>
+            <td>{row.averageTravelSeconds.toFixed(1)}초</td>
+            <td>{row.p95TravelSeconds.toFixed(1)}초</td>
+            <td>{row.delayedCount}</td>
+            <td><span className={row.delayedCount > 0 ? 'risk high' : 'risk normal'}>{row.delayedCount > 0 ? '주의' : '정상'}</span></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function PriorityBadge({ priority }: { priority: TransferPriority }) {
+  const labels: Record<TransferPriority, string> = {
+    LOW: '낮음',
+    NORMAL: '일반',
+    HIGH: '높음',
+    URGENT: '긴급',
+  }
+  return <span className={`priority ${priority.toLowerCase()}`}>{labels[priority]}</span>
+}
+
+function StatusBadge({ status }: { status: TransferStatus | OhtResponse['status'] }) {
+  const labels: Record<string, string> = {
+    WAITING: '대기',
+    ASSIGNED: '배정',
+    MOVING: '이동중',
+    COMPLETED: '완료',
+    FAILED: '실패',
+    CANCELED: '취소',
+    IDLE: '대기',
+    RESERVED: '예약',
+    ERROR: '오류',
+  }
+  return <span className={`state ${status.toLowerCase()}`}>{labels[status] ?? status}</span>
 }
 
 function severityClass(severity?: AlertSeverity) {
@@ -1090,13 +553,22 @@ function severityClass(severity?: AlertSeverity) {
   return 'info'
 }
 
-function formatTime(value: string | null) {
+function formatTime(value?: string | null) {
   if (!value) return '-'
   return new Intl.DateTimeFormat('ko-KR', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date(value))
+}
+
+function formatElapsed(start?: string | null, end?: string | null) {
+  if (!start) return '-'
+  const endTime = end ? new Date(end).getTime() : Date.now()
+  const seconds = Math.max(0, Math.round((endTime - new Date(start).getTime()) / 1000))
+  const minute = Math.floor(seconds / 60)
+  const second = seconds % 60
+  return minute > 0 ? `${minute}:${String(second).padStart(2, '0')}` : `0:${String(second).padStart(2, '0')}`
 }
 
 function formatPercent(value: number) {
@@ -1121,8 +593,8 @@ function toSvgPoint(
   const width = Math.max(1, bounds.maxX - bounds.minX)
   const height = Math.max(1, bounds.maxY - bounds.minY)
   return {
-    x: 90 + ((node.positionX - bounds.minX) / width) * 820,
-    y: 90 + ((node.positionY - bounds.minY) / height) * 380,
+    x: 95 + ((node.positionX - bounds.minX) / width) * 850,
+    y: 115 + ((node.positionY - bounds.minY) / height) * 380,
   }
 }
 

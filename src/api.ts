@@ -7,11 +7,8 @@ export type TransferStatus =
   | 'CANCELED'
 
 export type TransferPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
-
 export type OhtStatus = 'IDLE' | 'RESERVED' | 'MOVING' | 'ERROR'
-
 export type NodeType = 'STOCKER' | 'EQP' | 'CHARGER' | 'JUNCTION'
-
 export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
 
 export interface ApiResponse<T> {
@@ -137,6 +134,15 @@ export interface FabMapResponse {
   edges: FabEdgeResponse[]
 }
 
+export interface OhtResponse {
+  ohtId: string
+  status: OhtStatus
+  currentNodeId: string
+  currentRequestId: number | null
+  carryingFoupId: string | null
+  lastMovedAt: string | null
+}
+
 export interface AnalyticsSummaryResponse {
   totalRequests: number
   completedRequests: number
@@ -149,13 +155,6 @@ export interface AnalyticsSummaryResponse {
   delayedRequests: number
 }
 
-export interface OhtThroughputResponse {
-  ohtId: string
-  completedRequests: number
-  failedRequests: number
-  averageTransferSeconds: number
-}
-
 export interface BottleneckResponse {
   edgeId: string
   fromNodeId: string
@@ -166,20 +165,27 @@ export interface BottleneckResponse {
   delayedCount: number
 }
 
+export interface DemoMonitoringStatusResponse {
+  running: boolean
+  startedAt: string | null
+  lastEventAt: string | null
+  emittedEvents: number
+  tickIntervalMs: number
+  sseConnections: number
+}
+
+export interface DemoMonitoringActionResponse {
+  running: boolean
+  message: string
+  occurredAt: string
+  emittedEvents: number
+}
+
 export interface TransferSearchParams {
   status?: TransferStatus | ''
   priority?: TransferPriority | ''
-  assignedOhtId?: string
-  sourceNodeId?: string
-  destinationNodeId?: string
   page?: number
   size?: number
-}
-
-export interface CreateTransferRequestPayload {
-  sourceNodeId: string
-  destinationNodeId: string
-  priority: TransferPriority
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -192,27 +198,16 @@ export async function getFabMap(): Promise<FabMapResponse> {
   return getJson<FabMapResponse>('/fab-map')
 }
 
+export async function getOhts(): Promise<OhtResponse[]> {
+  return getJson<OhtResponse[]>('/ohts')
+}
+
 export async function getAnalyticsSummary(): Promise<AnalyticsSummaryResponse> {
   return getJson<AnalyticsSummaryResponse>('/analytics/summary')
 }
 
-export async function getOhtThroughput(): Promise<OhtThroughputResponse[]> {
-  return getJson<OhtThroughputResponse[]>('/analytics/oht-throughput')
-}
-
-export async function getBottlenecks(limit = 10): Promise<BottleneckResponse[]> {
+export async function getBottlenecks(limit = 5): Promise<BottleneckResponse[]> {
   return getJson<BottleneckResponse[]>(`/analytics/bottlenecks?limit=${limit}`)
-}
-
-export async function blockFabEdge(edgeId: string, reason: string): Promise<unknown> {
-  return sendJson(`/fab-edges/${edgeId}/block`, {
-    method: 'POST',
-    body: JSON.stringify({ reason }),
-  })
-}
-
-export async function unblockFabEdge(edgeId: string): Promise<unknown> {
-  return sendJson(`/fab-edges/${edgeId}/unblock`, { method: 'POST' })
 }
 
 export async function getTransferRequests(
@@ -226,31 +221,20 @@ export async function getTransferRequests(
   return getJson<PageResponse<TransferRequestResponse>>(`/transfer-requests?${query}`)
 }
 
-export async function createTransferRequest(
-  payload: CreateTransferRequestPayload,
-): Promise<TransferRequestResponse> {
-  return sendJson<TransferRequestResponse>('/transfer-requests', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
+export async function getDemoMonitoringStatus(): Promise<DemoMonitoringStatusResponse> {
+  return getJson<DemoMonitoringStatusResponse>('/demo-monitoring/status')
 }
 
-export async function assignTransferRequest(requestId: number, ohtId?: string): Promise<unknown> {
-  return sendJson(`/transfer-requests/${requestId}/assign`, {
-    method: 'POST',
-    body: JSON.stringify({ ohtId: ohtId?.trim() || null }),
-  })
+export async function startDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {
+  return sendJson<DemoMonitoringStatusResponse>('/demo-monitoring/start', { method: 'POST' })
 }
 
-export async function startTransferRequest(requestId: number): Promise<unknown> {
-  return sendJson(`/transfer-requests/${requestId}/start`, { method: 'POST' })
+export async function stopDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {
+  return sendJson<DemoMonitoringStatusResponse>('/demo-monitoring/stop', { method: 'POST' })
 }
 
-export async function cancelTransferRequest(requestId: number, reason: string): Promise<unknown> {
-  return sendJson(`/transfer-requests/${requestId}/cancel`, {
-    method: 'POST',
-    body: JSON.stringify({ reason }),
-  })
+export async function tickDemoMonitoring(): Promise<DemoMonitoringActionResponse> {
+  return sendJson<DemoMonitoringActionResponse>('/demo-monitoring/tick', { method: 'POST' })
 }
 
 export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void): EventSource {
@@ -299,12 +283,13 @@ async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
   } catch {
     throw new Error('백엔드 API에 연결할 수 없습니다.')
   }
+
   let body: ApiResponse<T> | ErrorResponse
   try {
     body = (await response.json()) as ApiResponse<T> | ErrorResponse
   } catch {
     if (!response.ok) {
-      throw new Error('백엔드 API에 연결할 수 없습니다.')
+      throw new Error('백엔드 API 응답을 읽을 수 없습니다.')
     }
     throw new Error('응답 형식이 올바르지 않습니다.')
   }
