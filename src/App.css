@@ -1,24 +1,20 @@
 .control-shell {
   min-height: 100vh;
-  background:
-    linear-gradient(rgba(22, 48, 68, 0.46) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(22, 48, 68, 0.42) 1px, transparent 1px),
-    #071521;
-  background-size: 28px 28px;
+  background: #07131d;
   color: #d5e1ec;
-  padding: 8px;
+  padding: 6px;
 }
 
 .control-topbar {
   align-items: center;
-  background: #071421;
-  border: 1px solid #24384b;
-  border-radius: 4px;
+  background: #07111a;
+  border: 1px solid #253748;
+  border-radius: 2px;
   display: flex;
   gap: 16px;
   justify-content: space-between;
-  min-height: 54px;
-  padding: 0 14px;
+  min-height: 50px;
+  padding: 0 12px;
 }
 
 .brand-block,
@@ -60,7 +56,7 @@ p {
 
 h1 {
   color: #f4f8fc;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 850;
   letter-spacing: 0;
 }
@@ -72,10 +68,10 @@ h1 {
 }
 
 .status-text {
-  border-left: 1px solid #2c4256;
+  border-left: 1px solid #253748;
   gap: 10px;
-  min-height: 34px;
-  padding: 0 16px;
+  min-height: 30px;
+  padding: 0 14px;
 }
 
 .status-text em {
@@ -105,42 +101,43 @@ h1 {
 
 .control-grid {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: minmax(340px, 420px) minmax(450px, 1fr) minmax(320px, 380px);
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .bottom-grid {
   display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.7fr) minmax(420px, 0.8fr);
-  margin-top: 8px;
+  gap: 6px;
+  grid-template-columns: minmax(540px, 1fr) minmax(300px, 0.6fr) minmax(360px, 0.72fr);
+  margin-top: 6px;
 }
 
 .side-stack {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-rows: minmax(300px, 1fr) 320px;
 }
 
 .pane {
-  background: rgba(8, 22, 35, 0.94);
-  border: 1px solid #263d50;
-  border-radius: 4px;
+  background: #081620;
+  border: 1px solid #263847;
+  border-radius: 2px;
   min-width: 0;
   overflow: hidden;
 }
 
 .pane-header {
-  border-bottom: 1px solid #20364b;
+  background: #0a1722;
+  border-bottom: 1px solid #253748;
   justify-content: space-between;
-  min-height: 44px;
-  padding: 0 12px;
+  min-height: 38px;
+  padding: 0 10px;
 }
 
 .pane-header h2 {
   color: #f0f6fc;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 850;
   letter-spacing: 0;
 }
@@ -152,26 +149,27 @@ h1 {
 }
 
 .status-tabs {
-  border-bottom: 1px solid #20364b;
+  border-bottom: 1px solid #253748;
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  padding: 8px;
+  gap: 1px;
+  padding: 6px;
 }
 
 .status-tabs button,
 .demo-actions button {
-  background: #0c1d2b;
-  border: 1px solid #2a4256;
-  border-radius: 4px;
+  background: #0b1a26;
+  border: 1px solid #263847;
+  border-radius: 2px;
   color: #aebfd0;
   cursor: pointer;
   font-size: 12px;
   font-weight: 800;
-  height: 30px;
+  height: 28px;
 }
 
 .status-tabs button.active {
-  background: #0b3b78;
+  background: #0a345f;
   border-color: #2f81f7;
   color: #f4f8fc;
 }
@@ -207,10 +205,10 @@ h1 {
 .ops-table th,
 .ops-table td,
 .oht-table td {
-  border-bottom: 1px solid rgba(49, 74, 96, 0.72);
+  border-bottom: 1px solid rgba(43, 62, 78, 0.86);
   color: #c8d5e1;
   font-size: 12px;
-  padding: 9px 8px;
+  padding: 8px 8px;
   text-align: left;
   white-space: nowrap;
 }
@@ -264,7 +262,7 @@ h1 {
 }
 
 .ops-table th {
-  background: rgba(8, 22, 35, 0.98);
+  background: #0a1722;
   color: #8ea2b4;
   font-size: 11px;
   font-weight: 850;
@@ -297,7 +295,7 @@ h1 {
 .priority,
 .risk {
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 2px;
   display: inline-flex;
   font-size: 11px;
   font-weight: 850;
@@ -355,7 +353,7 @@ h1 {
 }
 
 .fab-map {
-  background: #081927;
+  background: #081620;
   min-height: 610px;
   position: relative;
 }
@@ -487,9 +485,9 @@ h1 {
 }
 
 .map-legend {
-  background: rgba(5, 15, 24, 0.72);
-  border: 1px solid #263d50;
-  border-radius: 4px;
+  background: rgba(5, 15, 24, 0.86);
+  border: 1px solid #263847;
+  border-radius: 2px;
   bottom: 10px;
   gap: 14px;
   left: 12px;
@@ -527,8 +525,8 @@ h1 {
 }
 
 .oht-detail {
-  border-bottom: 1px solid #20364b;
-  padding: 16px;
+  border-bottom: 1px solid #253748;
+  padding: 12px;
 }
 
 .oht-detail > div {
@@ -539,7 +537,7 @@ h1 {
 
 .oht-detail strong {
   color: #f4f8fc;
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .oht-detail dl {
@@ -591,17 +589,17 @@ h1 {
 }
 
 .event-filter-bar {
-  border-bottom: 1px solid #20364b;
+  border-bottom: 1px solid #253748;
   display: grid;
-  gap: 5px;
+  gap: 1px;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  padding: 8px;
+  padding: 6px;
 }
 
 .event-filter-bar button {
-  background: #0c1d2b;
-  border: 1px solid #2a4256;
-  border-radius: 4px;
+  background: #0b1a26;
+  border: 1px solid #263847;
+  border-radius: 2px;
   color: #aebfd0;
   cursor: pointer;
   font-size: 11px;
@@ -616,7 +614,7 @@ h1 {
 }
 
 .event-row {
-  border-bottom: 1px solid rgba(49, 74, 96, 0.72);
+  border-bottom: 1px solid rgba(43, 62, 78, 0.86);
   display: grid;
   gap: 10px;
   grid-template-columns: 72px 128px minmax(0, 1fr);
@@ -651,32 +649,42 @@ h1 {
 }
 
 .metric-strip {
-  gap: 8px;
-  padding: 10px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  padding: 0;
 }
 
 .metric {
-  background: rgba(8, 24, 38, 0.8);
-  border: 1px solid #263d50;
-  border-radius: 4px;
-  min-height: 92px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid #253748;
+  min-height: 76px;
   min-width: 0;
-  padding: 13px 14px;
+  padding: 12px 14px;
   width: 100%;
+}
+
+.metric:last-child {
+  border-right: 0;
 }
 
 .metric span {
   color: #8fa1b2;
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric strong {
   color: #f4f8fc;
   display: block;
-  font-size: 28px;
-  margin-top: 16px;
+  font-size: 24px;
+  margin-top: 12px;
+  white-space: nowrap;
 }
 
 .metric.good strong {
@@ -693,7 +701,7 @@ h1 {
 
 .transfer-detail {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   padding: 12px;
 }
 
@@ -733,7 +741,7 @@ h1 {
 }
 
 .detail-events {
-  border-top: 1px solid #20364b;
+  border-top: 1px solid #253748;
   display: grid;
   gap: 6px;
   padding-top: 10px;
@@ -758,7 +766,7 @@ h1 {
 }
 
 .action-log-row {
-  border-bottom: 1px solid rgba(49, 74, 96, 0.72);
+  border-bottom: 1px solid rgba(43, 62, 78, 0.86);
   display: grid;
   gap: 10px;
   grid-template-columns: 82px 120px 180px minmax(0, 1fr);
@@ -788,7 +796,7 @@ h1 {
 
 .danger-action,
 .secondary-action {
-  border-radius: 4px;
+  border-radius: 2px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 850;
@@ -815,7 +823,7 @@ h1 {
 }
 
 .edge-action-panel {
-  border-bottom: 1px solid #20364b;
+  border-bottom: 1px solid #253748;
   display: grid;
   gap: 10px;
   padding: 12px;
