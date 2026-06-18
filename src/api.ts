@@ -181,6 +181,21 @@ export interface DemoMonitoringActionResponse {
   emittedEvents: number
 }
 
+export interface OperationActionLogResponse {
+  actionLogId: number
+  actionType:
+    | 'TRANSFER_CANCELED'
+    | 'EDGE_BLOCKED'
+    | 'EDGE_UNBLOCKED'
+    | 'OHT_MARKED_ERROR'
+    | 'OHT_RECOVERED'
+  targetType: 'TRANSFER' | 'EDGE' | 'OHT'
+  targetId: string
+  operatorId: string
+  reason: string
+  createdAt: string
+}
+
 export interface TransferSearchParams {
   status?: TransferStatus | ''
   priority?: TransferPriority | ''
@@ -223,6 +238,10 @@ export async function getTransferRequests(
 
 export async function getDemoMonitoringStatus(): Promise<DemoMonitoringStatusResponse> {
   return getJson<DemoMonitoringStatusResponse>('/demo-monitoring/status')
+}
+
+export async function getOperationActionLogs(): Promise<OperationActionLogResponse[]> {
+  return getJson<OperationActionLogResponse[]>('/operations/action-logs')
 }
 
 export async function startDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {

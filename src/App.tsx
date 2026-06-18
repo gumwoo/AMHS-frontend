@@ -7,6 +7,7 @@ import {
   getDemoMonitoringStatus,
   getFabMap,
   getOhts,
+  getOperationActionLogs,
   getOperationsOverview,
   getTransferRequests,
   markOhtError,
@@ -23,6 +24,7 @@ import {
   type FabMapResponse,
   type FabNodeResponse,
   type MonitoringEvent,
+  type OperationActionLogResponse,
   type OhtResponse,
   type OperationsOverviewResponse,
   type PageResponse,
@@ -112,6 +114,7 @@ function App() {
   const [analytics, setAnalytics] = useState<AnalyticsSummaryResponse>(emptyAnalytics)
   const [bottlenecks, setBottlenecks] = useState<BottleneckResponse[]>([])
   const [events, setEvents] = useState<MonitoringEvent[]>([])
+  const [actionLogs, setActionLogs] = useState<OperationActionLogResponse[]>([])
   const [demoStatus, setDemoStatus] = useState<DemoMonitoringStatusResponse | null>(null)
   const [streamConnected, setStreamConnected] = useState(false)
   const [statusFilter, setStatusFilter] = useState<TransferStatus | ''>('')
@@ -127,7 +130,7 @@ function App() {
   const loadControlRoom = useCallback(async () => {
     setError(null)
     try {
-      const [overviewData, transferData, mapData, ohtData, analyticsData, bottleneckData, demoData] =
+      const [overviewData, transferData, mapData, ohtData, analyticsData, bottleneckData, demoData, actionLogData] =
         await Promise.all([
           getOperationsOverview(10),
           getTransferRequests({ status: statusFilter, page: 0, size: 10 }),
@@ -136,6 +139,7 @@ function App() {
           getAnalyticsSummary(),
           getBottlenecks(5),
           getDemoMonitoringStatus(),
+          getOperationActionLogs(),
         ])
       setOverview(overviewData)
       setTransfers(transferData)
@@ -147,6 +151,7 @@ function App() {
       setAnalytics(analyticsData)
       setBottlenecks(bottleneckData)
       setDemoStatus(demoData)
+      setActionLogs(actionLogData)
       setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
       setSelectedTransferId((current) => current ?? transferData.content[0]?.requestId ?? null)
       setSelectedEdgeId((current) => current ?? mapData.edges[0]?.edgeId ?? null)
@@ -246,6 +251,14 @@ function App() {
     }
   }
 
+  async function refreshActionLogs() {
+    try {
+      setActionLogs(await getOperationActionLogs())
+    } catch {
+      // 운영 조치 자체는 성공했으므로 이력 갱신 실패는 화면 오류로 올리지 않는다.
+    }
+  }
+
   async function handleCancelSelectedTransfer() {
     if (!selectedTransfer) return
     setWorkingAction(true)
@@ -280,6 +293,8 @@ function App() {
       ].slice(0, 24))
       if (!selectedTransfer.demo) {
         await loadControlRoom()
+      } else {
+        await refreshActionLogs()
       }
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : '반송 작업 취소에 실패했습니다.')
@@ -494,6 +509,11 @@ function App() {
             onToggle={handleToggleSelectedEdge}
           />
           <BottleneckTable rows={bottlenecks} />
+        </section>
+
+        <section className="pane action-log-pane">
+          <PaneHeader title="운영 조치 이력" right={`${actionLogs.length}건`} />
+          <OperationActionLogList logs={actionLogs} />
         </section>
       </section>
     </main>
@@ -813,6 +833,25 @@ function EdgeActionPanel({
   )
 }
 
+function OperationActionLogList({ logs }: { logs: OperationActionLogResponse[] }) {
+  if (logs.length === 0) {
+    return <div className="empty-state compact">운영 조치 이력이 없습니다.</div>
+  }
+
+  return (
+    <div className="action-log-list">
+      {logs.map((log) => (
+        <article className="action-log-row" key={log.actionLogId}>
+          <time>{formatTime(log.createdAt)}</time>
+          <strong>{actionTypeLabel(log.actionType)}</strong>
+          <span>{log.targetType} · {log.targetId}</span>
+          <small>{log.operatorId} · {log.reason}</small>
+        </article>
+      ))}
+    </div>
+  )
+}
+
 function OhtTable({ ohts, selectedOhtId, onSelect }: { ohts: OhtResponse[]; selectedOhtId: string | null; onSelect: (ohtId: string) => void }) {
   return (
     <table className="oht-table">
@@ -1070,6 +1109,17 @@ function createLocalEvent(eventType: string, occurredAt: string, data: Record<st
     occurredAt,
     ...data,
   }
+}
+
+function actionTypeLabel(actionType: OperationActionLogResponse['actionType']) {
+  const labels: Record<OperationActionLogResponse['actionType'], string> = {
+    TRANSFER_CANCELED: '작업 취소',
+    EDGE_BLOCKED: '구간 차단',
+    EDGE_UNBLOCKED: '차단 해제',
+    OHT_MARKED_ERROR: 'OHT 오류',
+    OHT_RECOVERED: 'OHT 복구',
+  }
+  return labels[actionType]
 }
 
 function severityClass(severity?: AlertSeverity) {

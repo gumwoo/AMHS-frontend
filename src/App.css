@@ -747,6 +747,40 @@ h1 {
   white-space: nowrap;
 }
 
+.action-log-pane {
+  grid-column: 1 / -1;
+}
+
+.action-log-list {
+  display: grid;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.action-log-row {
+  border-bottom: 1px solid rgba(49, 74, 96, 0.72);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 82px 120px 180px minmax(0, 1fr);
+  min-height: 36px;
+  padding: 8px 12px;
+}
+
+.action-log-row time,
+.action-log-row span,
+.action-log-row small {
+  color: #9eb1c3;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-log-row strong {
+  color: #dce8f3;
+  font-size: 12px;
+}
+
 .operator-actions {
   display: flex;
   gap: 8px;
