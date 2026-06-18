@@ -137,6 +137,35 @@ export interface FabMapResponse {
   edges: FabEdgeResponse[]
 }
 
+export interface AnalyticsSummaryResponse {
+  totalRequests: number
+  completedRequests: number
+  failedRequests: number
+  canceledRequests: number
+  completionRate: number
+  failureRate: number
+  averageTransferSeconds: number
+  p95TransferSeconds: number
+  delayedRequests: number
+}
+
+export interface OhtThroughputResponse {
+  ohtId: string
+  completedRequests: number
+  failedRequests: number
+  averageTransferSeconds: number
+}
+
+export interface BottleneckResponse {
+  edgeId: string
+  fromNodeId: string
+  toNodeId: string
+  passCount: number
+  averageTravelSeconds: number
+  p95TravelSeconds: number
+  delayedCount: number
+}
+
 export interface TransferSearchParams {
   status?: TransferStatus | ''
   priority?: TransferPriority | ''
@@ -161,6 +190,18 @@ export async function getOperationsOverview(limit = 10): Promise<OperationsOverv
 
 export async function getFabMap(): Promise<FabMapResponse> {
   return getJson<FabMapResponse>('/fab-map')
+}
+
+export async function getAnalyticsSummary(): Promise<AnalyticsSummaryResponse> {
+  return getJson<AnalyticsSummaryResponse>('/analytics/summary')
+}
+
+export async function getOhtThroughput(): Promise<OhtThroughputResponse[]> {
+  return getJson<OhtThroughputResponse[]>('/analytics/oht-throughput')
+}
+
+export async function getBottlenecks(limit = 10): Promise<BottleneckResponse[]> {
+  return getJson<BottleneckResponse[]>(`/analytics/bottlenecks?limit=${limit}`)
 }
 
 export async function blockFabEdge(edgeId: string, reason: string): Promise<unknown> {

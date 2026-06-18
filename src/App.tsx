@@ -1,6 +1,7 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
+  BarChart3,
   Bell,
   Blocks,
   Ban,
@@ -23,17 +24,23 @@ import {
   blockFabEdge,
   cancelTransferRequest,
   createTransferRequest,
+  getAnalyticsSummary,
+  getBottlenecks,
   getFabMap,
+  getOhtThroughput,
   getOperationsOverview,
   getTransferRequests,
   openMonitoringStream,
   startTransferRequest,
   unblockFabEdge,
+  type AnalyticsSummaryResponse,
   type AlertSeverity,
+  type BottleneckResponse,
   type FabEdgeResponse,
   type FabMapResponse,
   type FabNodeResponse,
   type MonitoringEvent,
+  type OhtThroughputResponse,
   type OperationsOverviewResponse,
   type PageResponse,
   type TransferPriority,
@@ -42,7 +49,7 @@ import {
 } from './api'
 import './App.css'
 
-type ViewMode = 'dashboard' | 'transfers' | 'fab'
+type ViewMode = 'dashboard' | 'transfers' | 'fab' | 'analytics'
 
 const emptyOverview: OperationsOverviewResponse = {
   counts: {
@@ -81,6 +88,18 @@ const emptyFabMap: FabMapResponse = {
   edges: [],
 }
 
+const emptyAnalyticsSummary: AnalyticsSummaryResponse = {
+  totalRequests: 0,
+  completedRequests: 0,
+  failedRequests: 0,
+  canceledRequests: 0,
+  completionRate: 0,
+  failureRate: 0,
+  averageTransferSeconds: 0,
+  p95TransferSeconds: 0,
+  delayedRequests: 0,
+}
+
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard')
   const [overview, setOverview] = useState<OperationsOverviewResponse>(emptyOverview)
@@ -107,6 +126,10 @@ function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
   const [edgeReason, setEdgeReason] = useState('운영자 차단')
   const [workingEdgeId, setWorkingEdgeId] = useState<string | null>(null)
+  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummaryResponse>(emptyAnalyticsSummary)
+  const [ohtThroughput, setOhtThroughput] = useState<OhtThroughputResponse[]>([])
+  const [bottlenecks, setBottlenecks] = useState<BottleneckResponse[]>([])
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -151,9 +174,25 @@ function App() {
     }
   }, [])
 
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsError(null)
+    try {
+      const [summary, throughput, bottleneckData] = await Promise.all([
+        getAnalyticsSummary(),
+        getOhtThroughput(),
+        getBottlenecks(10),
+      ])
+      setAnalyticsSummary(summary)
+      setOhtThroughput(throughput)
+      setBottlenecks(bottleneckData)
+    } catch (exception) {
+      setAnalyticsError(exception instanceof Error ? exception.message : '분석 지표를 불러오지 못했습니다.')
+    }
+  }, [])
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadOverview(), loadTransfers(), loadFabMap()])
-  }, [loadFabMap, loadOverview, loadTransfers])
+    await Promise.all([loadOverview(), loadTransfers(), loadFabMap(), loadAnalytics()])
+  }, [loadAnalytics, loadFabMap, loadOverview, loadTransfers])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -257,6 +296,9 @@ function App() {
         <button className={viewMode === 'fab' ? 'active' : ''} type="button" onClick={() => setViewMode('fab')}>
           FAB 맵
         </button>
+        <button className={viewMode === 'analytics' ? 'active' : ''} type="button" onClick={() => setViewMode('analytics')}>
+          분석
+        </button>
       </nav>
 
       <section className="status-strip" aria-label="운영 요약">
@@ -305,6 +347,7 @@ function App() {
           onUpdateCreateForm={setCreateForm}
         />
       ) : (
+      viewMode === 'fab' ? (
         <FabMapView
           edgeReason={edgeReason}
           error={fabError}
@@ -317,6 +360,15 @@ function App() {
           onSetReason={setEdgeReason}
           onUnblockEdge={(edgeId) => runEdgeAction(edgeId, () => unblockFabEdge(edgeId))}
         />
+      ) : (
+        <AnalyticsView
+          bottlenecks={bottlenecks}
+          error={analyticsError}
+          ohtThroughput={ohtThroughput}
+          summary={analyticsSummary}
+          onRefresh={loadAnalytics}
+        />
+      )
       )}
     </main>
   )
@@ -750,6 +802,123 @@ function FabMapView({
   )
 }
 
+function AnalyticsView({
+  bottlenecks,
+  error,
+  ohtThroughput,
+  summary,
+  onRefresh,
+}: {
+  bottlenecks: BottleneckResponse[]
+  error: string | null
+  ohtThroughput: OhtThroughputResponse[]
+  summary: AnalyticsSummaryResponse
+  onRefresh: () => void
+}) {
+  return (
+    <section className="analytics-layout">
+      {error && (
+        <div className="inline-error analytics-error">
+          <XCircle size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="analytics-summary">
+        <AnalyticsMetric label="총 요청" value={summary.totalRequests.toLocaleString()} sub={`${summary.completedRequests} completed`} />
+        <AnalyticsMetric label="완료율" value={formatPercent(summary.completionRate)} sub={`${summary.failedRequests} failed`} tone="good" />
+        <AnalyticsMetric label="평균 반송" value={`${summary.averageTransferSeconds.toFixed(1)}s`} sub="requested → completed" />
+        <AnalyticsMetric label="P95 반송" value={`${summary.p95TransferSeconds}s`} sub="상위 지연 기준" tone="warning" />
+        <AnalyticsMetric label="지연 요청" value={summary.delayedRequests.toLocaleString()} sub={`${summary.canceledRequests} canceled`} tone="danger" />
+      </div>
+
+      <Panel title="OHT 처리량" action={<BarChart3 size={17} />}>
+        <div className="throughput-list">
+          {ohtThroughput.length === 0 ? (
+            <EmptyLine text="OHT 처리량 데이터 없음" />
+          ) : (
+            ohtThroughput.map((row) => (
+              <article className="throughput-row" key={row.ohtId}>
+                <strong>{row.ohtId}</strong>
+                <span>완료 {row.completedRequests}</span>
+                <span>실패 {row.failedRequests}</span>
+                <div className="bar-track">
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${Math.min(100, Math.max(8, row.completedRequests * 20))}%`,
+                    }}
+                  />
+                </div>
+                <small>{row.averageTransferSeconds.toFixed(1)}s avg</small>
+              </article>
+            ))
+          )}
+        </div>
+      </Panel>
+
+      <Panel title="병목 Edge" action={<button className="text-action" type="button" onClick={onRefresh}>새로고침</button>}>
+        <div className="bottleneck-table-wrap">
+          <table className="transfer-table bottleneck-table">
+            <thead>
+              <tr>
+                <th>Edge</th>
+                <th>구간</th>
+                <th>통과</th>
+                <th>평균</th>
+                <th>P95</th>
+                <th>지연</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bottlenecks.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>
+                    <EmptyLine text="병목 데이터 없음" />
+                  </td>
+                </tr>
+              ) : (
+                bottlenecks.map((edge) => (
+                  <tr key={`${edge.edgeId}-${edge.fromNodeId}-${edge.toNodeId}`}>
+                    <td>{edge.edgeId}</td>
+                    <td>
+                      {edge.fromNodeId} → {edge.toNodeId}
+                    </td>
+                    <td>{edge.passCount}</td>
+                    <td>{edge.averageTravelSeconds.toFixed(1)}s</td>
+                    <td>{edge.p95TravelSeconds}s</td>
+                    <td>{edge.delayedCount}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </section>
+  )
+}
+
+function AnalyticsMetric({
+  label,
+  sub,
+  value,
+  tone = 'neutral',
+}: {
+  label: string
+  sub: string
+  value: string
+  tone?: 'neutral' | 'good' | 'warning' | 'danger'
+}) {
+  return (
+    <article className={`analytics-metric ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{sub}</small>
+    </article>
+  )
+}
+
 function FabMapCanvas({
   edges,
   nodes,
@@ -928,6 +1097,10 @@ function formatTime(value: string | null) {
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date(value))
+}
+
+function formatPercent(value: number) {
+  return `${(value * 100).toFixed(1)}%`
 }
 
 function getMapBounds(nodes: FabNodeResponse[]) {
