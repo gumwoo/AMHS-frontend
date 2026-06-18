@@ -6,6 +6,8 @@ export type TransferStatus =
   | 'FAILED'
   | 'CANCELED'
 
+export type TransferPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+
 export type OhtStatus = 'IDLE' | 'RESERVED' | 'MOVING' | 'ERROR'
 
 export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
@@ -14,6 +16,41 @@ export interface ApiResponse<T> {
   success: boolean
   data: T
   timestamp: string
+}
+
+export interface ErrorResponse {
+  success: false
+  error: {
+    code: string
+    message: string
+    details: Record<string, unknown>
+    traceId: string | null
+  }
+  timestamp: string
+}
+
+export interface PageResponse<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  first: boolean
+  last: boolean
+}
+
+export interface TransferRequestResponse {
+  requestId: number
+  sourceNodeId: string
+  destinationNodeId: string
+  priority: TransferPriority
+  status: TransferStatus
+  assignedOhtId: string | null
+  requestedAt: string
+  assignedAt: string | null
+  startedAt: string | null
+  completedAt: string | null
+  failedReason: string | null
 }
 
 export interface OperationsStatusCountResponse {
@@ -33,7 +70,7 @@ export interface OperationsStatusCountResponse {
 export interface OperationsProblemTransferResponse {
   requestId: number
   status: TransferStatus
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+  priority: TransferPriority
   sourceNodeId: string
   destinationNodeId: string
   assignedOhtId: string | null
@@ -75,15 +112,64 @@ export interface MonitoringEvent {
   [key: string]: unknown
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+export interface TransferSearchParams {
+  status?: TransferStatus | ''
+  priority?: TransferPriority | ''
+  assignedOhtId?: string
+  sourceNodeId?: string
+  destinationNodeId?: string
+  page?: number
+  size?: number
+}
+
+export interface CreateTransferRequestPayload {
+  sourceNodeId: string
+  destinationNodeId: string
+  priority: TransferPriority
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export async function getOperationsOverview(limit = 10): Promise<OperationsOverviewResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/operations/overview?limit=${limit}`)
-  if (!response.ok) {
-    throw new Error(`운영 현황 조회 실패: ${response.status}`)
-  }
-  const body = (await response.json()) as ApiResponse<OperationsOverviewResponse>
-  return body.data
+  return getJson<OperationsOverviewResponse>(`/operations/overview?limit=${limit}`)
+}
+
+export async function getTransferRequests(
+  params: TransferSearchParams,
+): Promise<PageResponse<TransferRequestResponse>> {
+  const query = toQueryString({
+    ...params,
+    page: params.page ?? 0,
+    size: params.size ?? 20,
+  })
+  return getJson<PageResponse<TransferRequestResponse>>(`/transfer-requests?${query}`)
+}
+
+export async function createTransferRequest(
+  payload: CreateTransferRequestPayload,
+): Promise<TransferRequestResponse> {
+  return sendJson<TransferRequestResponse>('/transfer-requests', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function assignTransferRequest(requestId: number, ohtId?: string): Promise<unknown> {
+  return sendJson(`/transfer-requests/${requestId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ ohtId: ohtId?.trim() || null }),
+  })
+}
+
+export async function startTransferRequest(requestId: number): Promise<unknown> {
+  return sendJson(`/transfer-requests/${requestId}/start`, { method: 'POST' })
+}
+
+export async function cancelTransferRequest(requestId: number, reason: string): Promise<unknown> {
+  return sendJson(`/transfer-requests/${requestId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
 }
 
 export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void): EventSource {
@@ -111,4 +197,50 @@ export function openMonitoringStream(onEvent: (event: MonitoringEvent) => void):
   })
 
   return source
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  return sendJson<T>(path, { method: 'GET' })
+}
+
+async function sendJson<T>(path: string, init: RequestInit): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (init.body) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/api${path}`, {
+      ...init,
+      headers,
+    })
+  } catch {
+    throw new Error('백엔드 API에 연결할 수 없습니다.')
+  }
+  let body: ApiResponse<T> | ErrorResponse
+  try {
+    body = (await response.json()) as ApiResponse<T> | ErrorResponse
+  } catch {
+    if (!response.ok) {
+      throw new Error('백엔드 API에 연결할 수 없습니다.')
+    }
+    throw new Error('응답 형식이 올바르지 않습니다.')
+  }
+
+  if (!response.ok || !body.success) {
+    throw new Error('error' in body ? body.error.message : `요청 실패: ${response.status}`)
+  }
+
+  return body.data
+}
+
+function toQueryString(params: Record<string, string | number | undefined>): string {
+  const searchParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') {
+      searchParams.set(key, String(value))
+    }
+  })
+  return searchParams.toString()
 }
