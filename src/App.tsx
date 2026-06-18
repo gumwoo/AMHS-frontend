@@ -126,6 +126,8 @@ function App() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null)
   const [workingDemo, setWorkingDemo] = useState(false)
   const [workingAction, setWorkingAction] = useState(false)
+  const [transferCancelReason, setTransferCancelReason] = useState('관제 화면에서 운영자 취소')
+  const [edgeBlockReason, setEdgeBlockReason] = useState('관제 화면에서 운영자 차단')
 
   const loadControlRoom = useCallback(async () => {
     setError(null)
@@ -264,9 +266,10 @@ function App() {
     setWorkingAction(true)
     setError(null)
     const occurredAt = new Date().toISOString()
+    const reason = transferCancelReason.trim() || '관제 화면에서 운영자 취소'
     try {
       if (!selectedTransfer.demo) {
-        await cancelTransferRequest(selectedTransfer.requestId, '관제 화면에서 운영자 취소')
+        await cancelTransferRequest(selectedTransfer.requestId, reason)
       }
       setLiveTransfers((current) =>
         current.map((transfer) =>
@@ -275,7 +278,7 @@ function App() {
                 ...transfer,
                 status: 'CANCELED',
                 completedAt: occurredAt,
-                failedReason: '관제 화면에서 운영자 취소',
+                failedReason: reason,
                 updatedAt: occurredAt,
               }
             : transfer,
@@ -287,7 +290,7 @@ function App() {
           ohtId: selectedTransfer.assignedOhtId,
           alertSeverity: 'WARNING',
           alertTitle: '반송 취소',
-          alertMessage: `반송 작업 #${selectedTransfer.requestId}을 취소했습니다.`,
+          alertMessage: `반송 작업 #${selectedTransfer.requestId}을 취소했습니다. 사유: ${reason}`,
         }),
         ...current,
       ].slice(0, 24))
@@ -309,9 +312,10 @@ function App() {
     setError(null)
     const occurredAt = new Date().toISOString()
     const nextBlocked = !selectedEdge.blocked
+    const reason = edgeBlockReason.trim() || '관제 화면에서 운영자 차단'
     try {
       if (nextBlocked) {
-        await blockFabEdge(selectedEdge.edgeId, '관제 화면에서 운영자 차단')
+        await blockFabEdge(selectedEdge.edgeId, reason)
       } else {
         await unblockFabEdge(selectedEdge.edgeId)
       }
@@ -328,7 +332,9 @@ function App() {
           toNodeId: selectedEdge.toNodeId,
           alertSeverity: nextBlocked ? 'WARNING' : 'INFO',
           alertTitle: nextBlocked ? '경로 차단' : '경로 차단 해제',
-          alertMessage: `${selectedEdge.edgeId} 구간을 ${nextBlocked ? '차단' : '해제'}했습니다.`,
+          alertMessage: nextBlocked
+            ? `${selectedEdge.edgeId} 구간을 차단했습니다. 사유: ${reason}`
+            : `${selectedEdge.edgeId} 구간을 해제했습니다.`,
         }),
         ...current,
       ].slice(0, 24))
@@ -496,8 +502,10 @@ function App() {
           <TransferDetail
             disabled={workingAction || !selectedTransfer || terminalTransferStatuses.has(selectedTransfer.status)}
             events={selectedTransferEvents}
+            reason={transferCancelReason}
             transfer={selectedTransfer}
             onCancel={handleCancelSelectedTransfer}
+            onReasonChange={setTransferCancelReason}
           />
         </section>
 
@@ -506,7 +514,9 @@ function App() {
           <EdgeActionPanel
             disabled={workingAction || !selectedEdge}
             edge={selectedEdge}
+            reason={edgeBlockReason}
             onToggle={handleToggleSelectedEdge}
+            onReasonChange={setEdgeBlockReason}
           />
           <BottleneckTable rows={bottlenecks} />
         </section>
@@ -743,13 +753,17 @@ function OhtDetail({
 function TransferDetail({
   disabled,
   events,
+  reason,
   transfer,
   onCancel,
+  onReasonChange,
 }: {
   disabled: boolean
   events: MonitoringEvent[]
+  reason: string
   transfer: LiveTransfer | null
   onCancel: () => void
+  onReasonChange: (reason: string) => void
 }) {
   if (!transfer) {
     return <div className="empty-state compact">선택된 반송 작업이 없습니다.</div>
@@ -763,6 +777,15 @@ function TransferDetail({
         <PriorityBadge priority={transfer.priority} />
       </div>
       <div className="operator-actions">
+        <label className="reason-field">
+          <span>취소 사유</span>
+          <input
+            disabled={disabled}
+            maxLength={80}
+            value={reason}
+            onChange={(event) => onReasonChange(event.target.value)}
+          />
+        </label>
         <button className="danger-action" disabled={disabled} type="button" onClick={onCancel}>
           작업 취소
         </button>
@@ -799,11 +822,15 @@ function TransferDetail({
 function EdgeActionPanel({
   disabled,
   edge,
+  reason,
   onToggle,
+  onReasonChange,
 }: {
   disabled: boolean
   edge: FabMapResponse['edges'][number] | null
+  reason: string
   onToggle: () => void
+  onReasonChange: (reason: string) => void
 }) {
   if (!edge) {
     return <div className="empty-state compact">선택된 edge가 없습니다.</div>
@@ -821,6 +848,15 @@ function EdgeActionPanel({
         <dt>상태</dt>
         <dd>{edge.blocked ? '차단' : '정상'}</dd>
       </dl>
+      <label className="reason-field">
+        <span>차단 사유</span>
+        <input
+          disabled={disabled || edge.blocked}
+          maxLength={80}
+          value={edge.blocked ? '차단 해제는 시스템 이력에 자동 기록됩니다.' : reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+        />
+      </label>
       <button
         className={edge.blocked ? 'secondary-action' : 'danger-action'}
         disabled={disabled}
