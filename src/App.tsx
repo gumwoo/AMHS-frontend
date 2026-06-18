@@ -32,6 +32,8 @@ type LiveTransfer = TransferRequestResponse & {
   updatedAt?: string
 }
 
+type EventFilter = 'ALL' | 'WARNING' | 'CRITICAL' | 'OHT' | 'TRANSFER' | 'ROUTE'
+
 const emptyOverview: OperationsOverviewResponse = {
   counts: {
     waitingTransfers: 0,
@@ -83,6 +85,15 @@ const statusTabs: Array<{ label: string; value: TransferStatus | '' }> = [
   { label: '실패', value: 'FAILED' },
 ]
 
+const eventFilters: Array<{ label: string; value: EventFilter }> = [
+  { label: '전체', value: 'ALL' },
+  { label: '경고', value: 'WARNING' },
+  { label: '치명', value: 'CRITICAL' },
+  { label: 'OHT', value: 'OHT' },
+  { label: '반송', value: 'TRANSFER' },
+  { label: '경로', value: 'ROUTE' },
+]
+
 function App() {
   const [overview, setOverview] = useState<OperationsOverviewResponse>(emptyOverview)
   const [transfers, setTransfers] = useState<PageResponse<TransferRequestResponse>>(emptyTransfers)
@@ -97,7 +108,9 @@ function App() {
   const [demoStatus, setDemoStatus] = useState<DemoMonitoringStatusResponse | null>(null)
   const [streamConnected, setStreamConnected] = useState(false)
   const [statusFilter, setStatusFilter] = useState<TransferStatus | ''>('')
+  const [eventFilter, setEventFilter] = useState<EventFilter>('ALL')
   const [selectedOhtId, setSelectedOhtId] = useState('OHT-01')
+  const [selectedTransferId, setSelectedTransferId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null)
   const [workingDemo, setWorkingDemo] = useState(false)
@@ -126,6 +139,7 @@ function App() {
       setBottlenecks(bottleneckData)
       setDemoStatus(demoData)
       setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
+      setSelectedTransferId((current) => current ?? transferData.content[0]?.requestId ?? null)
       setLastLoadedAt(new Date().toISOString())
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : '관제 데이터를 불러오지 못했습니다.')
@@ -147,10 +161,14 @@ function App() {
 
   useEffect(() => {
     const source = openMonitoringStream((event) => {
-      setEvents((current) => [event, ...current].slice(0, 12))
+      setEvents((current) => [event, ...current].slice(0, 24))
       applyMonitoringEvent(event)
       if (typeof event.ohtId === 'string') {
         setSelectedOhtId(event.ohtId)
+      }
+      const requestId = numberValue(event.requestId)
+      if (requestId) {
+        setSelectedTransferId(requestId)
       }
       void getDemoMonitoringStatus().then(setDemoStatus).catch(() => undefined)
     })
@@ -171,13 +189,26 @@ function App() {
     [liveOhts, ohts, selectedOhtId],
   )
 
-  const selectedTransfer = useMemo(
-    () =>
-      selectedOht?.currentRequestId
-        ? visibleTransfers.find((transfer) => transfer.requestId === selectedOht.currentRequestId) ?? null
-        : null,
-    [selectedOht, visibleTransfers],
+  const selectedTransfer = useMemo(() => {
+    if (selectedTransferId) {
+      const selected = visibleTransfers.find((transfer) => transfer.requestId === selectedTransferId)
+      if (selected) return selected
+    }
+    if (selectedOht?.currentRequestId) {
+      return visibleTransfers.find((transfer) => transfer.requestId === selectedOht.currentRequestId) ?? null
+    }
+    return visibleTransfers[0] ?? null
+  }, [selectedOht, selectedTransferId, visibleTransfers])
+
+  const filteredEvents = useMemo(
+    () => events.filter((event) => matchesEventFilter(event, eventFilter)),
+    [eventFilter, events],
   )
+
+  const selectedTransferEvents = useMemo(() => {
+    if (!selectedTransfer) return []
+    return events.filter((event) => numberValue(event.requestId) === selectedTransfer.requestId).slice(0, 5)
+  }, [events, selectedTransfer])
 
   const liveCounts = useMemo(() => countLiveState(overview, visibleTransfers, liveOhts, liveFabMap), [
     overview,
@@ -237,7 +268,16 @@ function App() {
               </button>
             ))}
           </div>
-          <TransferTable rows={visibleTransfers} />
+          <TransferTable
+            rows={visibleTransfers}
+            selectedRequestId={selectedTransfer?.requestId ?? null}
+            onSelect={(transfer) => {
+              setSelectedTransferId(transfer.requestId)
+              if (transfer.assignedOhtId) {
+                setSelectedOhtId(transfer.assignedOhtId)
+              }
+            }}
+          />
         </section>
 
         <section className="pane map-pane">
@@ -275,7 +315,8 @@ function App() {
 
           <section className="pane event-pane">
             <PaneHeader title="실시간 이벤트" right={streamConnected ? 'LIVE' : 'OFF'} />
-            <EventLog events={events} />
+            <EventFilterBar value={eventFilter} onChange={setEventFilter} />
+            <EventLog events={filteredEvents} />
           </section>
         </aside>
       </section>
@@ -291,6 +332,11 @@ function App() {
             <Metric label="차단 구간" value={`${liveCounts.blockedEdges.toLocaleString()}건`} tone="warn" />
             <Metric label="장비 오류" value={`${liveCounts.errorOhts.toLocaleString()}건`} tone="bad" />
           </div>
+        </section>
+
+        <section className="pane transfer-detail-pane">
+          <PaneHeader title="선택 작업 상세" right={selectedTransfer ? `#${selectedTransfer.requestId}` : '-'} />
+          <TransferDetail transfer={selectedTransfer} events={selectedTransferEvents} />
         </section>
 
         <section className="pane bottleneck-pane">
@@ -320,7 +366,15 @@ function StatusText({ label, value, active = false }: { label: string; value: st
   )
 }
 
-function TransferTable({ rows }: { rows: LiveTransfer[] }) {
+function TransferTable({
+  rows,
+  selectedRequestId,
+  onSelect,
+}: {
+  rows: LiveTransfer[]
+  selectedRequestId: number | null
+  onSelect: (transfer: LiveTransfer) => void
+}) {
   if (rows.length === 0) {
     return <div className="empty-state">조회된 반송 작업이 없습니다.</div>
   }
@@ -341,7 +395,11 @@ function TransferTable({ rows }: { rows: LiveTransfer[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr className={row.demo ? 'demo-row' : ''} key={`${row.demo ? 'demo' : 'db'}-${row.requestId}`}>
+            <tr
+              className={`${row.demo ? 'demo-row' : ''} ${selectedRequestId === row.requestId ? 'selected-row' : ''}`}
+              key={`${row.demo ? 'demo' : 'db'}-${row.requestId}`}
+              onClick={() => onSelect(row)}
+            >
               <td>#{row.requestId}</td>
               <td>{row.sourceNodeId}</td>
               <td>{row.destinationNodeId}</td>
@@ -479,6 +537,47 @@ function OhtDetail({ oht, transfer }: { oht: OhtResponse | null; transfer: LiveT
   )
 }
 
+function TransferDetail({ transfer, events }: { transfer: LiveTransfer | null; events: MonitoringEvent[] }) {
+  if (!transfer) {
+    return <div className="empty-state compact">선택된 반송 작업이 없습니다.</div>
+  }
+
+  return (
+    <div className="transfer-detail">
+      <div className="detail-summary">
+        <strong>#{transfer.requestId}</strong>
+        <StatusBadge status={transfer.status} />
+        <PriorityBadge priority={transfer.priority} />
+      </div>
+      <dl>
+        <dt>경로</dt>
+        <dd>{transfer.sourceNodeId} → {transfer.destinationNodeId}</dd>
+        <dt>담당 OHT</dt>
+        <dd>{transfer.assignedOhtId ?? '-'}</dd>
+        <dt>요청 시각</dt>
+        <dd>{formatTime(transfer.requestedAt)}</dd>
+        <dt>시작 시각</dt>
+        <dd>{formatTime(transfer.startedAt)}</dd>
+        <dt>완료 시각</dt>
+        <dd>{formatTime(transfer.completedAt)}</dd>
+        <dt>실패 사유</dt>
+        <dd>{transfer.failedReason ?? '-'}</dd>
+      </dl>
+      <div className="detail-events">
+        {events.length === 0 ? (
+          <span>이 작업에 연결된 최근 이벤트가 없습니다.</span>
+        ) : (
+          events.map((event) => (
+            <span key={event.eventId}>
+              {formatTime(event.occurredAt)} · {event.eventType}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OhtTable({ ohts, selectedOhtId, onSelect }: { ohts: OhtResponse[]; selectedOhtId: string | null; onSelect: (ohtId: string) => void }) {
   return (
     <table className="oht-table">
@@ -497,9 +596,26 @@ function OhtTable({ ohts, selectedOhtId, onSelect }: { ohts: OhtResponse[]; sele
   )
 }
 
+function EventFilterBar({ value, onChange }: { value: EventFilter; onChange: (value: EventFilter) => void }) {
+  return (
+    <div className="event-filter-bar">
+      {eventFilters.map((filter) => (
+        <button
+          className={value === filter.value ? 'active' : ''}
+          key={filter.value}
+          type="button"
+          onClick={() => onChange(filter.value)}
+        >
+          {filter.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function EventLog({ events }: { events: MonitoringEvent[] }) {
   if (events.length === 0) {
-    return <div className="empty-state compact">수신된 이벤트가 없습니다.</div>
+    return <div className="empty-state compact">조건에 맞는 이벤트가 없습니다.</div>
   }
 
   return (
@@ -671,6 +787,15 @@ function countLiveState(
     errorOhts: ohts.filter((oht) => oht.status === 'ERROR').length || overview.counts.errorOhts,
     blockedEdges: map.edges.filter((edge) => edge.blocked).length || overview.counts.blockedEdges,
   }
+}
+
+function matchesEventFilter(event: MonitoringEvent, filter: EventFilter) {
+  if (filter === 'ALL') return true
+  if (filter === 'WARNING') return event.alertSeverity === 'WARNING'
+  if (filter === 'CRITICAL') return event.alertSeverity === 'CRITICAL'
+  if (filter === 'OHT') return event.eventType.startsWith('OHT_')
+  if (filter === 'TRANSFER') return event.eventType.startsWith('TRANSFER_')
+  return event.eventType.includes('ROUTE') || event.eventType.includes('EDGE')
 }
 
 function ohtStatusFromEvent(eventType: string): OhtResponse['status'] | null {

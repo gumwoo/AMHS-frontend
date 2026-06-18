@@ -113,7 +113,7 @@ h1 {
 .bottom-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.7fr) minmax(420px, 0.8fr);
   margin-top: 8px;
 }
 
@@ -285,6 +285,12 @@ h1 {
 
 .ops-table tbody tr.demo-row:hover {
   background: rgba(8, 145, 178, 0.16);
+}
+
+.ops-table tbody tr.selected-row {
+  background: rgba(47, 129, 247, 0.2);
+  outline: 1px solid rgba(47, 129, 247, 0.58);
+  outline-offset: -1px;
 }
 
 .state,
@@ -564,8 +570,33 @@ h1 {
 }
 
 .event-log {
-  max-height: 274px;
+  max-height: 226px;
   overflow: auto;
+}
+
+.event-filter-bar {
+  border-bottom: 1px solid #20364b;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding: 8px;
+}
+
+.event-filter-bar button {
+  background: #0c1d2b;
+  border: 1px solid #2a4256;
+  border-radius: 4px;
+  color: #aebfd0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  height: 28px;
+}
+
+.event-filter-bar button.active {
+  background: #0b3b78;
+  border-color: #2f81f7;
+  color: #f4f8fc;
 }
 
 .event-row {
@@ -642,6 +673,62 @@ h1 {
 
 .metric.bad strong {
   color: #f87171;
+}
+
+.transfer-detail {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.detail-summary {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.detail-summary strong {
+  color: #f4f8fc;
+  font-size: 20px;
+  margin-right: auto;
+}
+
+.transfer-detail dl {
+  display: grid;
+  gap: 7px 14px;
+  grid-template-columns: 78px minmax(0, 1fr);
+  margin: 0;
+}
+
+.transfer-detail dt {
+  color: #8fa1b2;
+  font-size: 12px;
+}
+
+.transfer-detail dd {
+  color: #dce8f3;
+  font-size: 12px;
+  font-weight: 750;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-events {
+  border-top: 1px solid #20364b;
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+}
+
+.detail-events span {
+  color: #9eb1c3;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bottleneck-table {
