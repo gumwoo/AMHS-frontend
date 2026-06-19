@@ -268,6 +268,10 @@ function App() {
     ohts,
     overview,
   ])
+  const operationalMetrics = useMemo(
+    () => calculateOperationalMetrics(analytics, liveTransfers),
+    [analytics, liveTransfers],
+  )
 
   async function runDemoAction(action: () => Promise<DemoMonitoringStatusResponse | unknown>) {
     setWorkingDemo(true)
@@ -555,9 +559,9 @@ function App() {
           <PaneHeader title="운영 지표" right="실시간 / 금일" />
           <div className="metric-strip">
             <Metric label="활성 작업" value={`${liveCounts.activeTransfers.toLocaleString()}건`} />
-            <Metric label="완료율" value={formatPercent(analytics.completionRate)} tone="good" />
-            <Metric label="평균 반송" value={`${analytics.averageTransferSeconds.toFixed(1)}초`} />
-            <Metric label="P95 반송" value={`${analytics.p95TransferSeconds.toFixed(1)}초`} tone="warn" />
+            <Metric label="완료율" value={formatPercent(operationalMetrics.completionRate)} tone="good" />
+            <Metric label="평균 반송" value={`${operationalMetrics.averageTransferSeconds.toFixed(1)}초`} />
+            <Metric label="P95 반송" value={`${operationalMetrics.p95TransferSeconds.toFixed(1)}초`} tone="warn" />
             <Metric label="차단 구간" value={`${liveCounts.blockedEdges.toLocaleString()}건`} tone="warn" />
             <Metric label="장비 오류" value={`${liveCounts.errorOhts.toLocaleString()}건`} tone="bad" />
           </div>
@@ -1188,6 +1192,11 @@ function applyTransferEvent(transfers: LiveTransfer[], event: MonitoringEvent): 
   const destinationNodeId = stringValue(event.destinationNodeId) ?? stringValue(event.toNodeId)
   const ohtId = stringValue(event.ohtId)
   const occurredAt = event.occurredAt ?? new Date().toISOString()
+  const elapsedSeconds = numberValue(event.elapsedSeconds)
+  const terminalEvent = event.eventType === 'TRANSFER_COMPLETED' || event.eventType === 'TRANSFER_FAILED'
+  const inferredRequestedAt = terminalEvent && elapsedSeconds != null
+    ? new Date(new Date(occurredAt).getTime() - elapsedSeconds * 1000).toISOString()
+    : occurredAt
 
   const existing = transfers.find((transfer) => transfer.requestId === requestId)
   const nextTransfer: LiveTransfer = {
@@ -1197,7 +1206,7 @@ function applyTransferEvent(transfers: LiveTransfer[], event: MonitoringEvent): 
     priority: event.alertSeverity === 'CRITICAL' ? 'URGENT' : event.alertSeverity === 'WARNING' ? 'HIGH' : existing?.priority ?? 'NORMAL',
     status: status ?? existing?.status ?? 'ASSIGNED',
     assignedOhtId: ohtId ?? existing?.assignedOhtId ?? null,
-    requestedAt: existing?.requestedAt ?? occurredAt,
+    requestedAt: existing?.requestedAt ?? inferredRequestedAt,
     assignedAt: existing?.assignedAt ?? (event.eventType === 'OHT_ASSIGNED' ? occurredAt : null),
     startedAt: existing?.startedAt ?? (event.eventType === 'OHT_MOVED' ? occurredAt : null),
     completedAt: event.eventType === 'TRANSFER_COMPLETED' || event.eventType === 'TRANSFER_FAILED' ? occurredAt : existing?.completedAt ?? null,
@@ -1207,6 +1216,52 @@ function applyTransferEvent(transfers: LiveTransfer[], event: MonitoringEvent): 
   }
 
   return [nextTransfer, ...transfers.filter((transfer) => transfer.requestId !== requestId)].slice(0, 20)
+}
+
+function calculateOperationalMetrics(
+  analytics: AnalyticsSummaryResponse,
+  liveTransfers: LiveTransfer[],
+): Pick<AnalyticsSummaryResponse, 'completionRate' | 'averageTransferSeconds' | 'p95TransferSeconds'> {
+  if (liveTransfers.length === 0) {
+    return analytics
+  }
+
+  const completedDurations = liveTransfers
+    .filter((transfer) => transfer.status === 'COMPLETED')
+    .map(transferDurationSeconds)
+    .filter((seconds): seconds is number => seconds != null)
+    .sort((left, right) => left - right)
+
+  if (completedDurations.length === 0) {
+    return analytics
+  }
+
+  return {
+    completionRate: completedDurations.length / liveTransfers.length,
+    averageTransferSeconds: average(completedDurations),
+    p95TransferSeconds: percentile95(completedDurations),
+  }
+}
+
+function transferDurationSeconds(transfer: LiveTransfer): number | null {
+  if (!transfer.completedAt) {
+    return null
+  }
+  const requestedAt = new Date(transfer.requestedAt).getTime()
+  const completedAt = new Date(transfer.completedAt).getTime()
+  if (Number.isNaN(requestedAt) || Number.isNaN(completedAt) || completedAt < requestedAt) {
+    return null
+  }
+  return Math.round((completedAt - requestedAt) / 1000)
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function percentile95(sortedValues: number[]) {
+  const index = Math.ceil(sortedValues.length * 0.95) - 1
+  return sortedValues[Math.max(0, Math.min(index, sortedValues.length - 1))]
 }
 
 function mergeTransferRows(primary: LiveTransfer[], fallback: LiveTransfer[]): LiveTransfer[] {
