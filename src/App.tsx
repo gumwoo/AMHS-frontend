@@ -145,6 +145,12 @@ function App() {
   const [actionLogTypeFilter, setActionLogTypeFilter] = useState<OperationActionType | ''>('')
   const [actionLogTargetFilter, setActionLogTargetFilter] = useState('')
 
+  const handleStatusFilterChange = useCallback((nextStatus: TransferStatus | '') => {
+    setStatusFilter(nextStatus)
+    setTransfers(emptyTransfers)
+    setSelectedTransferId(null)
+  }, [])
+
   const loadControlRoom = useCallback(async () => {
     setError(null)
     try {
@@ -169,7 +175,6 @@ function App() {
       setOhts(ohtData)
       setLiveFabMap(mapData)
       setLiveOhts(ohtData)
-      setLiveTransfers(transferData.content)
       setAnalytics(analyticsData)
       setBottlenecks(bottleneckData)
       setDemoStatus(demoData)
@@ -217,7 +222,7 @@ function App() {
   }, [applyMonitoringEvent])
 
   const visibleTransfers = useMemo(() => {
-    const rows: LiveTransfer[] = liveTransfers.length > 0 ? liveTransfers : transfers.content
+    const rows = mergeTransferRows(liveTransfers, transfers.content)
     return statusFilter ? rows.filter((row) => row.status === statusFilter) : rows
   }, [liveTransfers, statusFilter, transfers.content])
 
@@ -252,11 +257,16 @@ function App() {
     return map.edges.find((edge) => edge.edgeId === selectedEdgeId) ?? map.edges[0] ?? null
   }, [fabMap, liveFabMap, selectedEdgeId])
 
-  const liveCounts = useMemo(() => countLiveState(overview, visibleTransfers, liveOhts, liveFabMap), [
+  const liveCounts = useMemo(() => countLiveState(
     overview,
-    visibleTransfers,
-    liveOhts,
+    liveOhts.length > 0 ? liveOhts : ohts,
+    liveFabMap.nodes.length > 0 ? liveFabMap : fabMap,
+  ), [
+    fabMap,
     liveFabMap,
+    liveOhts,
+    ohts,
+    overview,
   ])
 
   async function runDemoAction(action: () => Promise<DemoMonitoringStatusResponse | unknown>) {
@@ -296,17 +306,15 @@ function App() {
         await cancelTransferRequest(selectedTransfer.requestId, reason, operatorId)
       }
       setLiveTransfers((current) =>
-        current.map((transfer) =>
-          transfer.requestId === selectedTransfer.requestId
-            ? {
-                ...transfer,
-                status: 'CANCELED',
-                completedAt: occurredAt,
-                failedReason: reason,
-                updatedAt: occurredAt,
-              }
-            : transfer,
-        ),
+        mergeTransferRows([
+          {
+            ...selectedTransfer,
+            status: 'CANCELED',
+            completedAt: occurredAt,
+            failedReason: reason,
+            updatedAt: occurredAt,
+          },
+        ], current),
       )
       setEvents((current) => [
         createLocalEvent('TRANSFER_CANCELED', occurredAt, {
@@ -476,7 +484,7 @@ function App() {
                 className={statusFilter === tab.value ? 'active' : ''}
                 key={tab.label}
                 type="button"
-                onClick={() => setStatusFilter(tab.value)}
+                onClick={() => handleStatusFilterChange(tab.value)}
               >
                 {tab.label}
               </button>
@@ -1201,6 +1209,14 @@ function applyTransferEvent(transfers: LiveTransfer[], event: MonitoringEvent): 
   return [nextTransfer, ...transfers.filter((transfer) => transfer.requestId !== requestId)].slice(0, 20)
 }
 
+function mergeTransferRows(primary: LiveTransfer[], fallback: LiveTransfer[]): LiveTransfer[] {
+  const primaryIds = new Set(primary.map((transfer) => transfer.requestId))
+  return [
+    ...primary,
+    ...fallback.filter((transfer) => !primaryIds.has(transfer.requestId)),
+  ].slice(0, 30)
+}
+
 function applyFabEvent(map: FabMapResponse, event: MonitoringEvent): FabMapResponse {
   if (map.edges.length === 0) return map
   if (event.eventType !== 'EDGE_BLOCKED' && event.eventType !== 'EDGE_UNBLOCKED') return map
@@ -1215,16 +1231,18 @@ function applyFabEvent(map: FabMapResponse, event: MonitoringEvent): FabMapRespo
 
 function countLiveState(
   overview: OperationsOverviewResponse,
-  transfers: LiveTransfer[],
   ohts: OhtResponse[],
   map: FabMapResponse,
 ) {
+  const activeTransfers =
+    overview.counts.waitingTransfers + overview.counts.assignedTransfers + overview.counts.movingTransfers
+  const hasOhtState = ohts.length > 0
+  const hasMapState = map.edges.length > 0
+
   return {
-    activeTransfers:
-      transfers.filter((transfer) => transfer.status === 'WAITING' || transfer.status === 'ASSIGNED' || transfer.status === 'MOVING').length ||
-      overview.counts.waitingTransfers + overview.counts.assignedTransfers + overview.counts.movingTransfers,
-    errorOhts: ohts.filter((oht) => oht.status === 'ERROR').length || overview.counts.errorOhts,
-    blockedEdges: map.edges.filter((edge) => edge.blocked).length || overview.counts.blockedEdges,
+    activeTransfers,
+    errorOhts: hasOhtState ? ohts.filter((oht) => oht.status === 'ERROR').length : overview.counts.errorOhts,
+    blockedEdges: hasMapState ? map.edges.filter((edge) => edge.blocked).length : overview.counts.blockedEdges,
   }
 }
 
