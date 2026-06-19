@@ -174,9 +174,12 @@ h1 {
 }
 
 .pane-action {
+  align-items: center;
   color: #9eb1c3;
+  display: flex;
   font-size: 12px;
   font-weight: 750;
+  gap: 8px;
 }
 
 .status-tabs {
@@ -239,7 +242,8 @@ h1 {
   border-bottom: 1px solid rgba(43, 62, 78, 0.86);
   color: #c8d5e1;
   font-size: 12px;
-  padding: 8px 8px;
+  height: 34px;
+  padding: 6px 8px;
   text-align: left;
   white-space: nowrap;
 }
@@ -247,6 +251,7 @@ h1 {
 .queue-pane .ops-table th,
 .queue-pane .ops-table td {
   font-size: 11px;
+  height: 32px;
   overflow: hidden;
   padding-left: 5px;
   padding-right: 5px;
@@ -649,8 +654,8 @@ h1 {
   display: grid;
   gap: 10px;
   grid-template-columns: 72px 128px minmax(0, 1fr);
-  min-height: 34px;
-  padding: 8px 10px;
+  min-height: 32px;
+  padding: 7px 10px;
 }
 
 .event-row time {
@@ -817,7 +822,7 @@ h1 {
   border-radius: 2px;
   color: #dce8f3;
   font-size: 12px;
-  height: 30px;
+  height: 28px;
   min-width: 0;
   padding: 0 9px;
 }
@@ -838,13 +843,37 @@ h1 {
   overflow: auto;
 }
 
+.action-log-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.action-log-actions button {
+  background: #0b1a26;
+  border: 1px solid #263847;
+  border-radius: 2px;
+  color: #dce8f3;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.action-log-actions button:disabled {
+  color: #748596;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .action-log-row {
   border-bottom: 1px solid rgba(43, 62, 78, 0.86);
   display: grid;
   gap: 10px;
   grid-template-columns: 82px 120px 180px minmax(0, 1fr);
-  min-height: 36px;
-  padding: 8px 12px;
+  min-height: 34px;
+  padding: 7px 12px;
 }
 
 .action-log-row time,

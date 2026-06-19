@@ -411,6 +411,30 @@ function App() {
     }
   }
 
+  function handleExportActionLogs() {
+    if (actionLogs.length === 0) return
+
+    const rows = actionLogs.map((log) => [
+      formatDateTime(log.createdAt),
+      actionTypeLabel(log.actionType),
+      targetTypeLabel(log.targetType),
+      log.targetId,
+      log.operatorId,
+      log.reason,
+    ])
+    const csv = toCsv([
+      ['시각', '조치', '대상유형', '대상ID', '운영자', '사유'],
+      ...rows,
+    ])
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `operation-action-logs-${toFileDate(new Date())}.csv`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <main className="control-shell">
       <header className="control-topbar">
@@ -511,7 +535,7 @@ function App() {
           </section>
 
           <section className="pane event-pane">
-            <PaneHeader title="실시간 이벤트" right={streamConnected ? 'LIVE' : 'OFF'} />
+            <PaneHeader title="실시간 이벤트" right={streamConnected ? '수신중' : '대기'} />
             <EventFilterBar value={eventFilter} onChange={setEventFilter} />
             <EventLog events={filteredEvents} />
           </section>
@@ -520,7 +544,7 @@ function App() {
 
       <section className="bottom-grid">
         <section className="pane metrics-pane">
-          <PaneHeader title="운영 지표" right="Live + Today" />
+          <PaneHeader title="운영 지표" right="실시간 / 금일" />
           <div className="metric-strip">
             <Metric label="활성 작업" value={`${liveCounts.activeTransfers.toLocaleString()}건`} />
             <Metric label="완료율" value={formatPercent(analytics.completionRate)} tone="good" />
@@ -556,7 +580,17 @@ function App() {
         </section>
 
         <section className="pane action-log-pane">
-          <PaneHeader title="운영 조치 이력" right={`${actionLogs.length}건`} />
+          <PaneHeader
+            title="운영 조치 이력"
+            right={
+              <div className="action-log-actions">
+                <span>{actionLogs.length}건</span>
+                <button disabled={actionLogs.length === 0} type="button" onClick={handleExportActionLogs}>
+                  CSV 내보내기
+                </button>
+              </div>
+            }
+          />
           <ActionLogFilters
             actionType={actionLogTypeFilter}
             operatorId={actionLogOperatorFilter}
@@ -1296,6 +1330,18 @@ function formatTime(value?: string | null) {
   }).format(new Date(value))
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(value))
+}
+
 function formatElapsed(start?: string | null, end?: string | null) {
   if (!start) return '-'
   const endTime = end ? new Date(end).getTime() : Date.now()
@@ -1307,6 +1353,26 @@ function formatElapsed(start?: string | null, end?: string | null) {
 
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`
+}
+
+function toCsv(rows: string[][]) {
+  return rows
+    .map((row) =>
+      row.map((cell) => {
+        const value = cell.replaceAll('"', '""')
+        return `"${value}"`
+      }).join(','),
+    )
+    .join('\r\n')
+}
+
+function toFileDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  return `${year}${month}${day}_${hour}${minute}`
 }
 
 function getMapBounds(nodes: FabNodeResponse[]) {
