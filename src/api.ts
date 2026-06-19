@@ -10,6 +10,12 @@ export type TransferPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 export type OhtStatus = 'IDLE' | 'RESERVED' | 'MOVING' | 'ERROR'
 export type NodeType = 'STOCKER' | 'EQP' | 'CHARGER' | 'JUNCTION'
 export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
+export type OperationActionType =
+  | 'TRANSFER_CANCELED'
+  | 'EDGE_BLOCKED'
+  | 'EDGE_UNBLOCKED'
+  | 'OHT_MARKED_ERROR'
+  | 'OHT_RECOVERED'
 
 export interface ApiResponse<T> {
   success: boolean
@@ -183,12 +189,7 @@ export interface DemoMonitoringActionResponse {
 
 export interface OperationActionLogResponse {
   actionLogId: number
-  actionType:
-    | 'TRANSFER_CANCELED'
-    | 'EDGE_BLOCKED'
-    | 'EDGE_UNBLOCKED'
-    | 'OHT_MARKED_ERROR'
-    | 'OHT_RECOVERED'
+  actionType: OperationActionType
   targetType: 'TRANSFER' | 'EDGE' | 'OHT'
   targetId: string
   operatorId: string
@@ -201,6 +202,13 @@ export interface TransferSearchParams {
   priority?: TransferPriority | ''
   page?: number
   size?: number
+}
+
+export interface OperationActionLogSearchParams {
+  operatorId?: string
+  actionType?: OperationActionType | ''
+  targetId?: string
+  limit?: number
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -240,8 +248,16 @@ export async function getDemoMonitoringStatus(): Promise<DemoMonitoringStatusRes
   return getJson<DemoMonitoringStatusResponse>('/demo-monitoring/status')
 }
 
-export async function getOperationActionLogs(): Promise<OperationActionLogResponse[]> {
-  return getJson<OperationActionLogResponse[]>('/operations/action-logs')
+export async function getOperationActionLogs(
+  params: OperationActionLogSearchParams = {},
+): Promise<OperationActionLogResponse[]> {
+  const query = toQueryString({
+    operatorId: params.operatorId,
+    actionType: params.actionType,
+    targetId: params.targetId,
+    limit: params.limit ?? 20,
+  })
+  return getJson<OperationActionLogResponse[]>(`/operations/action-logs?${query}`)
 }
 
 export async function startDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {

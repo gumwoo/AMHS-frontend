@@ -25,6 +25,7 @@ import {
   type FabNodeResponse,
   type MonitoringEvent,
   type OperationActionLogResponse,
+  type OperationActionType,
   type OhtResponse,
   type OperationsOverviewResponse,
   type PageResponse,
@@ -103,6 +104,15 @@ const eventFilters: Array<{ label: string; value: EventFilter }> = [
 
 const operators = ['operator01', 'operator02', 'maintenance01']
 
+const actionLogActionTypes: Array<{ label: string; value: OperationActionType | '' }> = [
+  { label: '전체 조치', value: '' },
+  { label: '작업 취소', value: 'TRANSFER_CANCELED' },
+  { label: '구간 차단', value: 'EDGE_BLOCKED' },
+  { label: '차단 해제', value: 'EDGE_UNBLOCKED' },
+  { label: 'OHT 오류', value: 'OHT_MARKED_ERROR' },
+  { label: 'OHT 복구', value: 'OHT_RECOVERED' },
+]
+
 const terminalTransferStatuses = new Set<TransferStatus>(['COMPLETED', 'FAILED', 'CANCELED'])
 
 function App() {
@@ -131,6 +141,9 @@ function App() {
   const [transferCancelReason, setTransferCancelReason] = useState('관제 화면에서 운영자 취소')
   const [edgeBlockReason, setEdgeBlockReason] = useState('관제 화면에서 운영자 차단')
   const [operatorId, setOperatorId] = useState('operator01')
+  const [actionLogOperatorFilter, setActionLogOperatorFilter] = useState('')
+  const [actionLogTypeFilter, setActionLogTypeFilter] = useState<OperationActionType | ''>('')
+  const [actionLogTargetFilter, setActionLogTargetFilter] = useState('')
 
   const loadControlRoom = useCallback(async () => {
     setError(null)
@@ -144,7 +157,11 @@ function App() {
           getAnalyticsSummary(),
           getBottlenecks(5),
           getDemoMonitoringStatus(),
-          getOperationActionLogs(),
+          getOperationActionLogs({
+            operatorId: actionLogOperatorFilter,
+            actionType: actionLogTypeFilter,
+            targetId: actionLogTargetFilter,
+          }),
         ])
       setOverview(overviewData)
       setTransfers(transferData)
@@ -164,7 +181,7 @@ function App() {
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : '관제 데이터를 불러오지 못했습니다.')
     }
-  }, [statusFilter])
+  }, [actionLogOperatorFilter, actionLogTargetFilter, actionLogTypeFilter, statusFilter])
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -258,7 +275,11 @@ function App() {
 
   async function refreshActionLogs() {
     try {
-      setActionLogs(await getOperationActionLogs())
+      setActionLogs(await getOperationActionLogs({
+        operatorId: actionLogOperatorFilter,
+        actionType: actionLogTypeFilter,
+        targetId: actionLogTargetFilter,
+      }))
     } catch {
       // 운영 조치 자체는 성공했으므로 이력 갱신 실패는 화면 오류로 올리지 않는다.
     }
@@ -536,6 +557,14 @@ function App() {
 
         <section className="pane action-log-pane">
           <PaneHeader title="운영 조치 이력" right={`${actionLogs.length}건`} />
+          <ActionLogFilters
+            actionType={actionLogTypeFilter}
+            operatorId={actionLogOperatorFilter}
+            targetId={actionLogTargetFilter}
+            onActionTypeChange={setActionLogTypeFilter}
+            onOperatorIdChange={setActionLogOperatorFilter}
+            onTargetIdChange={setActionLogTargetFilter}
+          />
           <OperationActionLogList logs={actionLogs} />
         </section>
       </section>
@@ -878,6 +907,59 @@ function EdgeActionPanel({
       >
         {edge.blocked ? '차단 해제' : '구간 차단'}
       </button>
+    </div>
+  )
+}
+
+function ActionLogFilters({
+  actionType,
+  operatorId,
+  targetId,
+  onActionTypeChange,
+  onOperatorIdChange,
+  onTargetIdChange,
+}: {
+  actionType: OperationActionType | ''
+  operatorId: string
+  targetId: string
+  onActionTypeChange: (actionType: OperationActionType | '') => void
+  onOperatorIdChange: (operatorId: string) => void
+  onTargetIdChange: (targetId: string) => void
+}) {
+  return (
+    <div className="action-log-filters">
+      <label>
+        <span>운영자</span>
+        <select value={operatorId} onChange={(event) => onOperatorIdChange(event.target.value)}>
+          <option value="">전체 운영자</option>
+          {operators.map((operator) => (
+            <option key={operator} value={operator}>
+              {operator}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>조치</span>
+        <select
+          value={actionType}
+          onChange={(event) => onActionTypeChange(event.target.value as OperationActionType | '')}
+        >
+          {actionLogActionTypes.map((type) => (
+            <option key={type.label} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>대상 ID</span>
+        <input
+          placeholder="EDGE-001, OHT-01"
+          value={targetId}
+          onChange={(event) => onTargetIdChange(event.target.value)}
+        />
+      </label>
     </div>
   )
 }
