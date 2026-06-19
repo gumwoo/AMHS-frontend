@@ -14,7 +14,10 @@ import {
   openMonitoringStream,
   recoverOht,
   startDemoMonitoring,
+  startSimulation,
   stopDemoMonitoring,
+  stopSimulation,
+  getSimulationStatus,
   tickDemoMonitoring,
   unblockFabEdge,
   type AlertSeverity,
@@ -128,6 +131,8 @@ function App() {
   const [events, setEvents] = useState<MonitoringEvent[]>([])
   const [actionLogs, setActionLogs] = useState<OperationActionLogResponse[]>([])
   const [demoStatus, setDemoStatus] = useState<DemoMonitoringStatusResponse | null>(null)
+  const [simRunning, setSimRunning] = useState(false)
+  const [workingSim, setWorkingSim] = useState(false)
   const [streamConnected, setStreamConnected] = useState(false)
   const [statusFilter, setStatusFilter] = useState<TransferStatus | ''>('')
   const [eventFilter, setEventFilter] = useState<EventFilter>('ALL')
@@ -178,6 +183,7 @@ function App() {
       setAnalytics(analyticsData)
       setBottlenecks(bottleneckData)
       setDemoStatus(demoData)
+      void getSimulationStatus().then((status) => setSimRunning(status.running)).catch(() => undefined)
       setActionLogs(actionLogData)
       setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
       setSelectedTransferId((current) => current ?? transferData.content[0]?.requestId ?? null)
@@ -284,6 +290,20 @@ function App() {
       setError(exception instanceof Error ? exception.message : '데모 모니터링 제어에 실패했습니다.')
     } finally {
       setWorkingDemo(false)
+    }
+  }
+
+  async function runSimAction(action: () => Promise<unknown>) {
+    setWorkingSim(true)
+    setError(null)
+    try {
+      await action()
+      const status = await getSimulationStatus()
+      setSimRunning(status.running)
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : '시뮬레이션 제어에 실패했습니다.')
+    } finally {
+      setWorkingSim(false)
     }
   }
 
@@ -519,6 +539,12 @@ function App() {
                 </button>
                 <button disabled={workingDemo} type="button" onClick={() => runDemoAction(tickDemoMonitoring)}>
                   1회 발생
+                </button>
+                <button disabled={workingSim || simRunning} type="button" onClick={() => runSimAction(startSimulation)}>
+                  반송 실행
+                </button>
+                <button disabled={workingSim || !simRunning} type="button" onClick={() => runSimAction(stopSimulation)}>
+                  반송 정지
                 </button>
               </div>
             }

@@ -260,6 +260,27 @@ export async function getOperationActionLogs(
   return getJson<OperationActionLogResponse[]>(`/operations/action-logs?${query}`)
 }
 
+export interface SimulationStatusResponse {
+  running: boolean
+  activeTransferCount: number
+  idleOhtCount: number
+  movingOhtCount: number
+  errorOhtCount: number
+  lastTickAt: string | null
+}
+
+export async function getSimulationStatus(): Promise<SimulationStatusResponse> {
+  return getJson<SimulationStatusResponse>('/simulation/status')
+}
+
+export async function startSimulation(): Promise<unknown> {
+  return sendJson('/simulation/start', { method: 'POST' })
+}
+
+export async function stopSimulation(): Promise<unknown> {
+  return sendJson('/simulation/stop', { method: 'POST' })
+}
+
 export async function startDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {
   return sendJson<DemoMonitoringStatusResponse>('/demo-monitoring/start', { method: 'POST' })
 }
