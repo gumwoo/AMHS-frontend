@@ -269,8 +269,21 @@ export interface SimulationStatusResponse {
   lastTickAt: string | null
 }
 
+export interface AutoDispatchStatusResponse {
+  running: boolean
+  scanLimit: number
+  lastTickAt: string | null
+  lastScannedCount: number
+  lastAssignedCount: number
+  lastSkippedCount: number
+}
+
 export async function getSimulationStatus(): Promise<SimulationStatusResponse> {
   return getJson<SimulationStatusResponse>('/simulation/status')
+}
+
+export async function getAutoDispatchStatus(): Promise<AutoDispatchStatusResponse> {
+  return getJson<AutoDispatchStatusResponse>('/dispatch/auto/status')
 }
 
 export async function startSimulation(): Promise<unknown> {
@@ -279,6 +292,18 @@ export async function startSimulation(): Promise<unknown> {
 
 export async function stopSimulation(): Promise<unknown> {
   return sendJson('/simulation/stop', { method: 'POST' })
+}
+
+export async function startAutoDispatch(): Promise<AutoDispatchStatusResponse> {
+  return sendJson<AutoDispatchStatusResponse>('/dispatch/auto/start', { method: 'POST' })
+}
+
+export async function stopAutoDispatch(): Promise<AutoDispatchStatusResponse> {
+  return sendJson<AutoDispatchStatusResponse>('/dispatch/auto/stop', { method: 'POST' })
+}
+
+export async function tickAutoDispatch(): Promise<AutoDispatchStatusResponse> {
+  return sendJson<AutoDispatchStatusResponse>('/dispatch/auto/tick', { method: 'POST' })
 }
 
 export async function startDemoMonitoring(): Promise<DemoMonitoringStatusResponse> {

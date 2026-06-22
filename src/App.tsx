@@ -3,6 +3,7 @@ import {
   blockFabEdge,
   cancelTransferRequest,
   getAnalyticsSummary,
+  getAutoDispatchStatus,
   getBottlenecks,
   getDemoMonitoringStatus,
   getFabMap,
@@ -13,15 +14,19 @@ import {
   markOhtError,
   openMonitoringStream,
   recoverOht,
+  startAutoDispatch,
   startDemoMonitoring,
   startSimulation,
+  stopAutoDispatch,
   stopDemoMonitoring,
   stopSimulation,
   getSimulationStatus,
+  tickAutoDispatch,
   tickDemoMonitoring,
   unblockFabEdge,
   type AlertSeverity,
   type AnalyticsSummaryResponse,
+  type AutoDispatchStatusResponse,
   type BottleneckResponse,
   type DemoMonitoringStatusResponse,
   type FabMapResponse,
@@ -131,6 +136,8 @@ function App() {
   const [events, setEvents] = useState<MonitoringEvent[]>([])
   const [actionLogs, setActionLogs] = useState<OperationActionLogResponse[]>([])
   const [demoStatus, setDemoStatus] = useState<DemoMonitoringStatusResponse | null>(null)
+  const [autoDispatchStatus, setAutoDispatchStatus] = useState<AutoDispatchStatusResponse | null>(null)
+  const [workingAutoDispatch, setWorkingAutoDispatch] = useState(false)
   const [simRunning, setSimRunning] = useState(false)
   const [workingSim, setWorkingSim] = useState(false)
   const [streamConnected, setStreamConnected] = useState(false)
@@ -159,7 +166,17 @@ function App() {
   const loadControlRoom = useCallback(async () => {
     setError(null)
     try {
-      const [overviewData, transferData, mapData, ohtData, analyticsData, bottleneckData, demoData, actionLogData] =
+      const [
+        overviewData,
+        transferData,
+        mapData,
+        ohtData,
+        analyticsData,
+        bottleneckData,
+        demoData,
+        autoDispatchData,
+        actionLogData,
+      ] =
         await Promise.all([
           getOperationsOverview(10),
           getTransferRequests({ status: statusFilter, page: 0, size: 10 }),
@@ -168,6 +185,7 @@ function App() {
           getAnalyticsSummary(),
           getBottlenecks(5),
           getDemoMonitoringStatus(),
+          getAutoDispatchStatus(),
           getOperationActionLogs({
             operatorId: actionLogOperatorFilter,
             actionType: actionLogTypeFilter,
@@ -183,6 +201,7 @@ function App() {
       setAnalytics(analyticsData)
       setBottlenecks(bottleneckData)
       setDemoStatus(demoData)
+      setAutoDispatchStatus(autoDispatchData)
       void getSimulationStatus().then((status) => setSimRunning(status.running)).catch(() => undefined)
       setActionLogs(actionLogData)
       setSelectedOhtId((current) => current || ohtData[0]?.ohtId || 'OHT-01')
@@ -304,6 +323,20 @@ function App() {
       setError(exception instanceof Error ? exception.message : '시뮬레이션 제어에 실패했습니다.')
     } finally {
       setWorkingSim(false)
+    }
+  }
+
+  async function runAutoDispatchAction(action: () => Promise<AutoDispatchStatusResponse>) {
+    setWorkingAutoDispatch(true)
+    setError(null)
+    try {
+      const status = await action()
+      setAutoDispatchStatus(status)
+      await loadControlRoom()
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : '자동 배정 제어에 실패했습니다.')
+    } finally {
+      setWorkingAutoDispatch(false)
     }
   }
 
@@ -480,6 +513,7 @@ function App() {
         </div>
         <div className="topbar-status">
           <StatusText label="FAB" value="FAB-01" />
+          <StatusText label="자동배정" value={autoDispatchStatus?.running ? '실행중' : '중지'} active={autoDispatchStatus?.running} />
           <StatusText label="시뮬레이션" value={demoStatus?.running ? '실행중' : '중지'} active={demoStatus?.running} />
           <StatusText label="SSE" value={streamConnected ? '연결 정상' : '대기'} active={streamConnected} />
           <StatusText label="이벤트" value={`${demoStatus?.emittedEvents ?? 0}건`} />
@@ -539,6 +573,27 @@ function App() {
                 </button>
                 <button disabled={workingDemo} type="button" onClick={() => runDemoAction(tickDemoMonitoring)}>
                   1회 발생
+                </button>
+                <button
+                  disabled={workingAutoDispatch || autoDispatchStatus?.running}
+                  type="button"
+                  onClick={() => runAutoDispatchAction(startAutoDispatch)}
+                >
+                  자동배정 실행
+                </button>
+                <button
+                  disabled={workingAutoDispatch || !autoDispatchStatus?.running}
+                  type="button"
+                  onClick={() => runAutoDispatchAction(stopAutoDispatch)}
+                >
+                  자동배정 정지
+                </button>
+                <button
+                  disabled={workingAutoDispatch}
+                  type="button"
+                  onClick={() => runAutoDispatchAction(tickAutoDispatch)}
+                >
+                  자동배정 1회
                 </button>
                 <button disabled={workingSim || simRunning} type="button" onClick={() => runSimAction(startSimulation)}>
                   반송 실행
