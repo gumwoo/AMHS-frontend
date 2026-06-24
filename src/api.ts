@@ -8,7 +8,7 @@ export type TransferStatus =
 
 export type TransferPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
 export type OhtStatus = 'IDLE' | 'RESERVED' | 'MOVING' | 'ERROR'
-export type NodeType = 'STOCKER' | 'EQP' | 'CHARGER' | 'JUNCTION'
+export type NodeType = 'STOCKER' | 'EQP' | 'PORT' | 'JUNCTION' | 'CHARGER' | 'BUFFER'
 export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
 export type OperationActionType =
   | 'TRANSFER_CANCELED'
