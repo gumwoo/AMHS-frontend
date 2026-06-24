@@ -3,6 +3,7 @@ logs
 *.log
 *.md
 !README.md
+!AGENTS.md
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

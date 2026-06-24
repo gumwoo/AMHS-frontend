@@ -175,7 +175,7 @@ foreach ($path in $expectedApiPaths) {
     }
 }
 
-$trackedMarkdown = git ls-files "*.md" 2>$null | Where-Object { $_ -ne "README.md" }
+$trackedMarkdown = git ls-files "*.md" 2>$null | Where-Object { $_ -notin @("README.md", "AGENTS.md") }
 if ($trackedMarkdown) {
     Add-Failure "Markdown files other than README.md are tracked by Git: $($trackedMarkdown -join ', ')"
 }
