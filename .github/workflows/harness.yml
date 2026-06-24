@@ -1,0 +1,35 @@
+name: Frontend Harness
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  frontend-harness:
+    name: 프론트엔드 하네스 검증
+    runs-on: windows-latest
+
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      - name: 하네스 제약 검사
+        shell: pwsh
+        run: npm run harness:check
+
+      - name: 린트 검사
+        run: npm run lint
+
+      - name: 프론트엔드 빌드
+        run: npm run build
